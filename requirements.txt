@@ -1,0 +1,8 @@
+# MCP Server Requirements
+paramiko>=3.0.0
+docker>=6.0.0
+kubernetes>=25.0.0
+click>=8.0.0
+pyyaml>=6.0
+cryptography>=41.0.0
+rich>=13.0.0
