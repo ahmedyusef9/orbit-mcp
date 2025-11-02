@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "devops": {
+      "command": "mcp-server",
+      "args": ["--transport", "stdio"],
+      "env": {},
+      "description": "MCP DevOps Server - SSH, Docker, and Kubernetes management"
+    }
+  }
+}

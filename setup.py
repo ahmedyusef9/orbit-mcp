@@ -38,6 +38,7 @@ setup(
     entry_points={
         "console_scripts": [
             "mcp=mcp.cli:main",
+            "mcp-server=mcp.mcp_main:main",
         ],
     },
 )
