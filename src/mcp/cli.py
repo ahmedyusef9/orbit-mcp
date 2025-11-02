@@ -3,6 +3,7 @@
 import click
 import logging
 import sys
+import asyncio
 from pathlib import Path
 from rich.console import Console
 from rich.table import Table
@@ -42,6 +43,229 @@ def main(ctx, config, verbose):
     ctx.obj['ssh'] = SSHManager()
     ctx.obj['docker'] = DockerManager(ctx.obj['ssh'])
     ctx.obj['k8s'] = KubernetesManager()
+
+
+# AI Agent Commands
+@main.group()
+def ai():
+    """AI-powered DevOps assistant commands."""
+    pass
+
+
+@ai.command()
+@click.argument('prompt', nargs=-1, required=False)
+@click.option('--provider', '-p', help='LLM provider (openai, anthropic, ollama)')
+@click.option('--format', '-f', type=click.Choice(['markdown', 'plain', 'json']), default='markdown',
+              help='Output format')
+@click.pass_context
+def ask(ctx, prompt, provider, format):
+    """
+    Ask the AI agent a question (one-shot mode).
+    
+    Examples:
+        mcp ai ask "Check status of server prod-web-01"
+        mcp ai ask "Why did the OpenSearch cluster fail?"
+    """
+    if not prompt:
+        console.print("[red]Error: Please provide a prompt[/red]")
+        console.print("[yellow]Example: mcp ai ask \"Check server status\"[/yellow]")
+        return
+    
+    prompt_text = ' '.join(prompt)
+    
+    # Import AI components
+    try:
+        from .llm.providers import LLMClient
+        from .ai.agent import AIAgent
+        from .ai.cli_agent import run_ai_cli
+    except ImportError as e:
+        console.print(f"[red]AI features not available: {e}[/red]")
+        console.print("[yellow]Install AI dependencies: pip install openai anthropic[/yellow]")
+        return
+    
+    # Initialize AI agent
+    config_mgr = ctx.obj['config']
+    llm_config = config_mgr.config.get('llm', {})
+    
+    if not llm_config:
+        console.print("[yellow]No LLM configuration found. Using defaults.[/yellow]")
+        llm_config = {
+            'default_provider': 'ollama',
+            'providers': {
+                'ollama': {'enabled': True, 'model': 'llama2'}
+            }
+        }
+    
+    llm_client = LLMClient(llm_config)
+    
+    # Build tool registry
+    tool_registry = _build_tool_registry(ctx.obj)
+    
+    agent = AIAgent(llm_client, tool_registry)
+    
+    # Override provider if specified
+    if provider:
+        try:
+            llm_client.set_default_provider(provider)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            return
+    
+    # Run agent
+    asyncio.run(run_ai_cli(agent, prompt_text, format))
+
+
+@ai.command()
+@click.option('--provider', '-p', help='LLM provider (openai, anthropic, ollama)')
+@click.pass_context
+def chat(ctx, provider):
+    """
+    Start interactive AI chat (REPL mode).
+    
+    Examples:
+        mcp ai chat
+        mcp ai chat --provider anthropic
+    """
+    # Import AI components
+    try:
+        from .llm.providers import LLMClient
+        from .ai.agent import AIAgent
+        from .ai.repl import start_repl
+    except ImportError as e:
+        console.print(f"[red]AI features not available: {e}[/red]")
+        console.print("[yellow]Install AI dependencies: pip install openai anthropic[/yellow]")
+        return
+    
+    # Initialize AI agent
+    config_mgr = ctx.obj['config']
+    llm_config = config_mgr.config.get('llm', {})
+    
+    if not llm_config:
+        console.print("[yellow]No LLM configuration found. Using defaults.[/yellow]")
+        llm_config = {
+            'default_provider': 'ollama',
+            'providers': {
+                'ollama': {'enabled': True, 'model': 'llama2'}
+            }
+        }
+    
+    llm_client = LLMClient(llm_config)
+    
+    # Build tool registry
+    tool_registry = _build_tool_registry(ctx.obj)
+    
+    agent = AIAgent(llm_client, tool_registry)
+    
+    # Override provider if specified
+    if provider:
+        try:
+            llm_client.set_default_provider(provider)
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            return
+    
+    # Start REPL
+    asyncio.run(start_repl(agent))
+
+
+@ai.command()
+@click.pass_context
+def models(ctx):
+    """List available LLM models."""
+    try:
+        from .llm.providers import LLMClient
+    except ImportError as e:
+        console.print(f"[red]AI features not available: {e}[/red]")
+        return
+    
+    config_mgr = ctx.obj['config']
+    llm_config = config_mgr.config.get('llm', {})
+    
+    if not llm_config:
+        console.print("[yellow]No LLM configuration found.[/yellow]")
+        return
+    
+    llm_client = LLMClient(llm_config)
+    
+    table = Table(title="Available LLM Models")
+    table.add_column("Provider", style="cyan")
+    table.add_column("Status", style="green")
+    table.add_column("Default", style="yellow")
+    
+    default = llm_client.get_default_provider()
+    
+    for provider in llm_client.list_providers():
+        is_default = "?" if provider == default else ""
+        table.add_row(provider, "? Available", is_default)
+    
+    console.print(table)
+
+
+@ai.command()
+@click.pass_context
+def usage(ctx):
+    """Show AI usage statistics and costs."""
+    try:
+        from .llm.providers import LLMClient
+        from .llm.cost_manager import CostManager
+    except ImportError as e:
+        console.print(f"[red]AI features not available: {e}[/red]")
+        return
+    
+    config_mgr = ctx.obj['config']
+    llm_config = config_mgr.config.get('llm', {})
+    cost_config = llm_config.get('cost_control', {
+        'daily_budget': 10.0,
+        'monthly_budget': 200.0
+    })
+    
+    cost_mgr = CostManager(cost_config)
+    summary = cost_mgr.get_usage_summary()
+    
+    console.print("\n[bold]AI Usage Statistics[/bold]\n")
+    
+    # Daily
+    console.print("[cyan]Today:[/cyan]")
+    console.print(f"  Cost:      ${summary['daily']['cost']:.4f} / ${summary['daily']['limit']:.2f}")
+    console.print(f"  Tokens:    {summary['daily']['tokens']:,}")
+    console.print(f"  Remaining: ${summary['daily']['remaining']:.2f}\n")
+    
+    # Monthly
+    console.print("[cyan]This Month:[/cyan]")
+    console.print(f"  Cost:      ${summary['monthly']['cost']:.2f} / ${summary['monthly']['limit']:.2f}")
+    console.print(f"  Tokens:    {summary['monthly']['tokens']:,}")
+    console.print(f"  Remaining: ${summary['monthly']['remaining']:.2f}\n")
+    
+    # Total
+    console.print("[cyan]All Time:[/cyan]")
+    console.print(f"  Total Cost:   ${summary['total']['cost']:.2f}")
+    console.print(f"  Total Tokens: {summary['total']['tokens']:,}\n")
+
+
+def _build_tool_registry(managers: dict) -> dict:
+    """Build tool registry for AI agent."""
+    ssh_mgr = managers['ssh']
+    docker_mgr = managers['docker']
+    k8s_mgr = managers['k8s']
+    config_mgr = managers['config']
+    
+    # Map tools to their handlers
+    # This is a simplified version - full implementation would include all tools
+    return {
+        'ssh.execute': {
+            'description': 'Execute command on remote server via SSH',
+            'handler': ssh_mgr.execute_command
+        },
+        'docker.list': {
+            'description': 'List Docker containers',
+            'handler': docker_mgr.list_containers
+        },
+        'k8s.get_pods': {
+            'description': 'List Kubernetes pods',
+            'handler': k8s_mgr.list_pods
+        },
+        # Add more tools as needed
+    }
 
 
 # Configuration Commands

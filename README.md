@@ -1,524 +1,620 @@
-# MCP Server - Multi-Cloud Platform Management Tool
+# Orbit-MCP - AI-Powered DevOps Platform
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-orange.svg)
 
-**MCP Server** is an internal DevOps tool that empowers developers and DevOps teams to manage and interact with various environments (on-premises servers and cloud instances) from a unified command-line interface.
+**Orbit-MCP** is a hybrid DevOps platform that combines traditional command-line tools, MCP server capabilities for IDE integration, and an intelligent AI agent powered by LLMs. It empowers developers and DevOps teams to manage infrastructure through **natural language**, direct commands, or AI-assisted workflows.
 
-## ?? Overview
+## ?? What's New: AI Agent Integration
 
-MCP Server provides a single, secure interface for managing:
-- **SSH Access** - Execute remote commands on Linux servers
-- **Docker Management** - Control containers across different hosts
-- **Kubernetes Operations** - Manage pods, services, and deployments
-- **Log Access** - Retrieve and tail logs from multiple sources
-- **Command Aliases** - Create shortcuts for frequently used operations
+Orbit-MCP now includes a **built-in AI agent** that can:
 
-## ? Key Features
+- ?? **Understand natural language** - "Check why OpenSearch failed on server ilgss1111"
+- ?? **Plan and execute autonomously** - Break complex tasks into steps
+- ?? **Optimize costs** - Intelligently choose between OpenAI, Claude, or local Ollama models
+- ?? **Use DevOps tools** - SSH, Docker, Kubernetes, logs, and more
+- ?? **Reason and diagnose** - Analyze logs and explain root causes
+- ?? **Safe by default** - Confirm destructive operations
 
-### Multi-Environment Support
-- Connect to on-premises servers, AWS EC2, Azure VMs, and more
-- Manage multiple environments from one tool
-- Switch between contexts seamlessly
+## ?? Three Modes of Operation
 
-### Secure Credential Management
-- Store credentials in local configuration files (with restricted permissions)
-- Support for SSH keys, passwords, and Kubernetes configs
-- Future integration with secret management systems (Vault, AWS Secrets Manager)
+### 1. **AI Agent Mode** (NEW!)
 
-### Comprehensive Operations
-- **SSH**: Execute commands, tail logs, transfer files
-- **Docker**: List, start, stop, restart containers; view logs and stats
-- **Kubernetes**: Manage pods, services, deployments; scale and restart workloads
-- **Aliases**: Define custom shortcuts for complex command sequences
-
-### Developer-Friendly CLI
-- Rich terminal output with tables and colors
-- Intuitive command structure
-- Verbose mode for debugging
-
-## ?? Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- pip package manager
-- SSH client installed on your system
-- (Optional) Docker for local Docker operations
-- (Optional) kubectl for Kubernetes operations
-
-### Install from Source
+Ask questions in natural language:
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd mcp-server
+# One-shot queries
+$ mcp ai ask "Check status of server prod-web-01"
 
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+? Server prod-web-01 is healthy
+- Uptime: 23 days
+- Load: 0.8, 1.2, 1.5
+- Memory: 62% used
+- Disk: 45% used
+
+# Interactive chat
+$ mcp ai chat
+
+You: Why did nginx fail?
+Orbit AI: [analyzes logs] Nginx failed due to SSL certificate expiration...
+
+You: Show me the OpenSearch cluster status
+Orbit AI: [checks cluster] Status: RED. Root cause: Disk full on node 1...
+```
+
+**Use when:**
+- Investigating incidents
+- Diagnosing complex issues
+- Need intelligent analysis
+- Want conversational interaction
+
+### 2. **MCP Server Mode**
+
+Integrate with Cursor or other AI IDEs:
+
+```json
+// Cursor config
+{
+  "mcpServers": {
+    "orbit-mcp": {
+      "command": "mcp-server",
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+In Cursor:
+```
+You: "Check production server status"
+Cursor AI ? orbit-mcp ? infrastructure ? results ? Cursor AI ? You
+```
+
+**Use when:**
+- Working in your IDE (Cursor, VS Code)
+- Want AI assistance during coding
+- Need infrastructure context while developing
+
+### 3. **Traditional CLI Mode**
+
+Direct commands (no AI):
+
+```bash
+mcp ssh exec prod-web-01 "systemctl status nginx"
+mcp docker ps
+mcp k8s pods -n production
+```
+
+**Use when:**
+- Scripting and automation
+- Known exact commands
+- Speed is critical
+- No AI needed
+
+## ?? What It Manages
+
+- **SSH Access** - Execute remote commands, tail logs, transfer files
+- **Docker** - Containers, images, logs, stats
+- **Kubernetes** - Pods, services, deployments, scaling
+- **Docker Compose** - Multi-container applications
+- **Helm** - Kubernetes package management
+- **System Logs** - Journalctl, syslog, application logs
+- **Command Aliases** - Custom shortcuts
+
+## ?? Quick Start
+
+### Installation
+
+```bash
+# Clone repository
+git clone <repository-url>
+cd orbit-mcp
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Install MCP in development mode
+# Install Orbit
 pip install -e .
 ```
 
-### Verify Installation
+### AI Agent Setup
 
 ```bash
-mcp --help
+# Option 1: Use Ollama (local, free)
+curl -fsSL https://ollama.ai/install.sh | sh
+ollama pull llama2
+
+# Option 2: Use OpenAI
+export OPENAI_API_KEY=sk-...
+
+# Option 3: Use Anthropic Claude
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-## ?? Quick Start
-
-### 1. Initialize Configuration
+### Configuration
 
 ```bash
-mcp config init
+# Copy example config
+cp config.example.yaml ~/.mcp/config.yaml
+
+# Edit config
+vim ~/.mcp/config.yaml
 ```
 
-This creates a configuration directory at `~/.mcp/config.yaml`.
-
-### 2. Add Your First SSH Server
+### First AI Query
 
 ```bash
-mcp config add-ssh prod-server \
-    server.example.com \
-    myuser \
-    --key ~/.ssh/id_rsa \
-    --port 22
+mcp ai ask "Hello, introduce yourself"
 ```
 
-### 3. Execute a Remote Command
+## ?? AI Agent Examples
+
+### Server Health Check
 
 ```bash
-mcp ssh exec prod-server "uptime"
+$ mcp ai ask "Is server prod-web-01 healthy?"
+
+Checking prod-web-01...
+
+? Server is healthy
+- Uptime: 23 days, 14:32
+- Load average: 0.8, 1.2, 1.5 (normal)
+- Memory: 8.2 GB / 16 GB (62% used)
+- Disk: 145 GB / 500 GB (45% used)
+- No critical errors in logs
+
+Status: All systems operational
 ```
 
-### 4. Tail Remote Logs
+### Log Analysis
 
 ```bash
-mcp ssh logs prod-server /var/log/app/app.log -n 100 -f
+$ mcp ai ask "Why did the OpenSearch cluster fail on ilgss1111?"
+
+Investigating OpenSearch failure on ilgss1111...
+
+Step 1: Checking service status...
+? Service: inactive (failed)
+? Exit code: 137 (OOM kill)
+
+Step 2: Analyzing logs...
+? Found OutOfMemoryError at 14:57:23
+? Heap size: 2GB configured, attempted to allocate 3.2GB
+
+ROOT CAUSE:
+The OpenSearch cluster failed due to insufficient heap memory.
+The JVM tried to allocate 3.2GB but only 2GB was configured,
+triggering an out-of-memory kill by the system.
+
+RECOMMENDATION:
+Increase heap size in /etc/opensearch/jvm.options:
+-Xms4g
+-Xmx4g
+
+Cost: $0.0342 today
 ```
 
-## ?? Usage Guide
-
-### Configuration Management
-
-#### List All Configured Profiles
+### Interactive Investigation
 
 ```bash
-mcp config list
+$ mcp ai chat
+
+Welcome to Orbit AI ??
+
+You: What pods are failing in production?
+
+Orbit AI: Checking production Kubernetes cluster...
+
+Found 3 pods in CrashLoopBackOff:
+- api-server-7d9f8 (15 restarts)
+- worker-queue-4k2p1 (8 restarts)  
+- redis-cache-9x7m4 (23 restarts)
+
+You: Show logs for api-server
+
+Orbit AI: Retrieving logs...
+
+Key error found: "ECONNREFUSED redis:6379"
+The API server can't connect to Redis.
+
+You: Why is Redis failing?
+
+Orbit AI: Checking Redis logs...
+
+Redis error: "OOM command not allowed when used memory > 'maxmemory'"
+
+ROOT CAUSE: Redis has run out of memory (maxmemory limit hit)
+
+SOLUTION:
+1. Increase Redis memory limit:
+   kubectl edit deployment redis-cache
+   # Set resources.limits.memory to 2Gi
+
+2. Or clear Redis cache:
+   kubectl exec redis-cache-9x7m4 -- redis-cli FLUSHALL
+
+Would you like me to help execute this?
 ```
 
-#### Add Docker Host
+## ?? LLM Providers & Cost Management
 
-```bash
-mcp config add-docker my-docker-host docker.example.com --ssh-server prod-server
-```
+### Supported Providers
 
-#### Add Kubernetes Cluster
+| Provider | Best For | Cost | Setup |
+|----------|----------|------|-------|
+| **Ollama** | Privacy, unlimited usage | $0 (local) | `ollama pull llama2` |
+| **OpenAI** | General reasoning | $0.0015-0.06/1K tokens | `export OPENAI_API_KEY=...` |
+| **Anthropic** | Large context (100K tokens) | $0.00025-0.075/1K tokens | `export ANTHROPIC_API_KEY=...` |
 
-```bash
-mcp config add-k8s prod-k8s ~/.kube/config --context prod-cluster
-```
+### Cost Control
 
-#### Create Command Alias
-
-```bash
-mcp config add-alias restart-app "systemctl restart myapp"
-```
-
-### SSH Operations
-
-#### Execute Single Command
-
-```bash
-mcp ssh exec prod-server "df -h"
-```
-
-#### Execute Alias
-
-```bash
-mcp ssh exec prod-server restart-app
-```
-
-#### Tail Logs
-
-```bash
-# Last 50 lines
-mcp ssh logs prod-server /var/log/app/error.log
-
-# Follow logs in real-time
-mcp ssh logs prod-server /var/log/app/error.log -f
-
-# Custom number of lines
-mcp ssh logs prod-server /var/log/app/error.log -n 200
-```
-
-### Docker Operations
-
-#### List Containers
-
-```bash
-# Running containers
-mcp docker ps
-
-# All containers (including stopped)
-mcp docker ps -a
-```
-
-#### Manage Container Lifecycle
-
-```bash
-# Start container
-mcp docker start my-container
-
-# Stop container
-mcp docker stop my-container
-
-# Restart container
-mcp docker restart my-container
-```
-
-#### View Container Logs
-
-```bash
-# Last 100 lines
-mcp docker logs my-container
-
-# Follow logs
-mcp docker logs my-container -f
-
-# Custom tail
-mcp docker logs my-container -n 500
-```
-
-### Kubernetes Operations
-
-#### List Contexts
-
-```bash
-mcp k8s contexts
-```
-
-#### Switch to Cluster
-
-```bash
-mcp k8s use prod-k8s
-```
-
-#### List Resources
-
-```bash
-# List pods
-mcp k8s pods -n default
-
-# List pods in specific namespace
-mcp k8s pods -n production
-
-# List services
-mcp k8s services -n default
-
-# List deployments
-mcp k8s deployments -n production
-```
-
-#### View Pod Logs
-
-```bash
-# Basic logs
-mcp k8s logs my-pod -n default
-
-# Specific container in multi-container pod
-mcp k8s logs my-pod -c app-container -n default
-
-# Follow logs
-mcp k8s logs my-pod -f -n default
-
-# Tail specific number of lines
-mcp k8s logs my-pod --tail 500 -n default
-```
-
-#### Manage Deployments
-
-```bash
-# Scale deployment
-mcp k8s scale my-deployment 5 -n production
-
-# Restart deployment
-mcp k8s restart my-deployment -n production
-```
-
-## ?? Configuration File Format
-
-The configuration is stored in `~/.mcp/config.yaml`:
+Automatic budget management:
 
 ```yaml
-version: "1.0"
-
-ssh_servers:
-  - name: prod-server
-    host: server.example.com
-    user: admin
-    port: 22
-    key_path: ~/.ssh/id_rsa
-
-docker_hosts:
-  - name: docker-prod
-    host: docker.example.com
-    connection_type: ssh
-    ssh_config:
-      user: admin
-      key_path: ~/.ssh/id_rsa
-
-kubernetes_clusters:
-  - name: prod-k8s
-    kubeconfig_path: ~/.kube/config
-    context: prod-cluster
-
-aliases:
-  restart-app: "systemctl restart myapp"
-  check-disk: "df -h"
-  app-status: "systemctl status myapp"
-
-settings:
-  log_level: INFO
-  timeout: 30
-  retry_count: 3
+# ~/.mcp/config.yaml
+llm:
+  cost_control:
+    daily_budget: 10.0      # Max $10/day
+    monthly_budget: 200.0   # Max $200/month
+    alert_at: 0.8           # Alert at 80%
+    prefer_local: true      # Use Ollama for simple tasks
+    auto_optimize: true     # Switch to cheaper models when needed
 ```
 
-## ?? Security Considerations
+### Usage Tracking
 
-### Current Implementation (MVP)
-- Credentials stored in local configuration file at `~/.mcp/config.yaml`
-- Configuration directory has restricted permissions (0700)
-- Configuration file has restricted permissions (0600)
-- SSH key-based authentication is strongly recommended over passwords
-- Supports SSH agent for key management
+```bash
+$ mcp ai usage
 
-### Security Best Practices
-1. **Never commit configuration files to version control**
-   - `.mcp/` directory is included in `.gitignore`
-   - Never share configuration files containing credentials
+Today:
+  Cost:      $0.2450 / $10.00
+  Tokens:    15,230
+  Remaining: $9.76
 
-2. **Use SSH Keys Instead of Passwords**
-   ```bash
-   # Good - uses SSH key
-   mcp config add-ssh server host user --key ~/.ssh/id_rsa
-   
-   # Avoid - stores password in plain text
-   mcp config add-ssh server host user --password mypass
-   ```
+This Month:
+  Cost:      $12.45 / $200.00
+  Tokens:    782,100
+  Remaining: $187.55
+```
 
-3. **Limit Credential Scope**
-   - Use service accounts with minimal required permissions
-   - For Kubernetes, use RBAC to limit access
-   - For SSH, restrict user permissions on remote systems
+### Cost Optimization
 
-4. **Regular Credential Rotation**
-   - Rotate SSH keys periodically
-   - Update Kubernetes tokens when they expire
-   - Monitor access logs for suspicious activity
+The agent automatically:
+1. Uses **local models** (Ollama) for simple tasks
+2. Uses **GPT-3.5** for moderate complexity
+3. Uses **Claude** for large context (logs, configs)
+4. Reserves **GPT-4/Claude-Opus** for complex reasoning
 
-### Future Security Enhancements
-- Integration with HashiCorp Vault
-- Support for AWS Secrets Manager
-- Support for Azure Key Vault
-- Kubernetes Secrets integration
-- Encrypted credential storage
-- Audit logging of all operations
-- Multi-factor authentication for central server mode
+Example:
+```
+Simple query: "List pods"
+? Uses: Ollama (free)
+
+Complex analysis: "Diagnose cluster failure"
+? Uses: Claude-3-Sonnet ($0.08)
+
+Huge logs (50K tokens): "Analyze these logs"
+? Uses: Claude (100K context) after optimization
+? Optimizes: 50K tokens ? 3K tokens (95% reduction)
+? Cost: $0.09 instead of $1.50
+```
+
+## ?? Usage Modes
+
+### AI Ask (One-Shot)
+
+```bash
+# Basic queries
+mcp ai ask "Check server prod-web-01"
+mcp ai ask "List all running containers"
+mcp ai ask "Show Kubernetes pod status"
+
+# Complex diagnostics
+mcp ai ask "Why is nginx down on prod-web-02?"
+mcp ai ask "Analyze error logs from last hour"
+
+# Specify provider
+mcp ai ask "Complex query" --provider anthropic
+
+# Output formats
+mcp ai ask "List pods" --format json
+```
+
+### AI Chat (Interactive)
+
+```bash
+# Start session
+mcp ai chat
+
+# Commands inside chat
+/help          # Show help
+/status        # Usage stats
+/model <name>  # Switch LLM
+/reset         # Clear history
+/exit          # Quit
+
+# Just talk naturally
+You: Check production status
+You: Show me the logs
+You: What's causing the errors?
+```
+
+### Traditional CLI
+
+```bash
+# SSH
+mcp ssh list
+mcp ssh exec prod-web-01 "systemctl status nginx"
+mcp ssh logs prod-web-01 /var/log/nginx/error.log
+
+# Docker
+mcp docker list
+mcp docker logs my-container
+mcp docker stats my-container
+
+# Kubernetes
+mcp k8s pods -n production
+mcp k8s logs my-pod -n default
+mcp k8s scale my-deployment 5 -n production
+```
+
+## ?? Configuration Example
+
+`~/.mcp/config.yaml`:
+
+```yaml
+# SSH Servers
+ssh:
+  servers:
+    prod-web-01:
+      host: 192.168.1.100
+      username: admin
+      key_file: ~/.ssh/id_rsa
+
+# Docker Hosts
+docker:
+  hosts:
+    local:
+      type: local
+      socket: unix:///var/run/docker.sock
+
+# Kubernetes Clusters
+kubernetes:
+  clusters:
+    prod-k8s:
+      kubeconfig: ~/.kube/config
+      context: prod-cluster
+
+# LLM Configuration
+llm:
+  default_provider: ollama
+  
+  providers:
+    openai:
+      enabled: true
+      model: gpt-3.5-turbo
+      api_key: ${OPENAI_API_KEY}
+    
+    anthropic:
+      enabled: true
+      model: claude-3-sonnet
+      api_key: ${ANTHROPIC_API_KEY}
+    
+    ollama:
+      enabled: true
+      model: llama2
+      base_url: http://localhost:11434
+  
+  cost_control:
+    daily_budget: 10.0
+    monthly_budget: 200.0
+    prefer_local: true
+
+# Security
+security:
+  confirm_destructive: true
+  allowed_commands:
+    - systemctl
+    - docker
+    - kubectl
+  blocked_patterns:
+    - rm -rf
+    - mkfs
+```
 
 ## ??? Architecture
 
-### Current Design (Phase 1 - MVP)
+Orbit-MCP uses a hybrid architecture:
+
 ```
-???????????????????????????
-?   MCP CLI (Local)       ?
-?                         ?
-?  ?????????????????????  ?
-?  ? Config Manager    ?  ?
-?  ?????????????????????  ?
-?  ?????????????????????  ?
-?  ? SSH Manager       ?  ?
-?  ?????????????????????  ?
-?  ?????????????????????  ?
-?  ? Docker Manager    ?  ?
-?  ?????????????????????  ?
-?  ?????????????????????  ?
-?  ? K8s Manager       ?  ?
-?  ?????????????????????  ?
-???????????????????????????
-         ?
-         ? SSH/API Calls
-         ???????????????????????
-         ?                     ?
-    ???????????         ??????????????
-    ?  Remote ?         ? Kubernetes ?
-    ? Servers ?         ?  Cluster   ?
-    ???????????         ??????????????
+????????????????????????????????????????????????
+?              ORBIT-MCP                       ?
+?                                              ?
+?  ??????????????  ????????????  ??????????? ?
+?  ? MCP Server ?  ? AI Agent ?  ?   CLI   ? ?
+?  ? (Cursor)   ?  ? (LLM)    ?  ? (Direct)? ?
+?  ??????????????  ????????????  ??????????? ?
+?         ?             ?             ?        ?
+????????????????????????????????????????????????
+          ?             ?             ?
+          ???????????????             ?
+                     ?                ?
+            ???????????????????
+            ? Tool Registry   ?
+            ? (Infrastructure)?
+            ???????????????????
+                     ?
+         ?????????????????????????
+         ?           ?           ?
+         ?           ?           ?
+    ??????????  ??????????  ????????
+    ?  SSH   ?  ? Docker ?  ? K8s  ?
+    ??????????  ??????????  ????????
 ```
 
-### Future Architecture (Phase 4 - Central Server)
+**AI Agent Loop:**
 ```
-????????????????????????       ????????????????????????
-?  Developer Client    ?       ?  Developer Client    ?
-?      (CLI/UI)        ?       ?      (CLI/UI)        ?
-????????????????????????       ????????????????????????
-           ?                               ?
-           ?         REST/WebSocket        ?
-           ?????????????????????????????????
-                           ?
-                  ???????????????????
-                  ?  MCP Server     ?
-                  ?  (Central)      ?
-                  ?                 ?
-                  ?  ?????????????  ?
-                  ?  ? Auth &    ?  ?
-                  ?  ? RBAC      ?  ?
-                  ?  ?????????????  ?
-                  ?  ?????????????  ?
-                  ?  ? Task      ?  ?
-                  ?  ? Manager   ?  ?
-                  ?  ?????????????  ?
-                  ?  ?????????????  ?
-                  ?  ? Secrets   ?  ?
-                  ?  ? Manager   ?  ?
-                  ?  ?????????????  ?
-                  ???????????????????
-                           ?
-         ?????????????????????????????????????
-         ?                 ?                 ?
-    ???????????     ???????????????   ??????????????
-    ?  SSH    ?     ?   Docker    ?   ? Kubernetes ?
-    ? Servers ?     ?   Hosts     ?   ?  Clusters  ?
-    ???????????     ???????????????   ??????????????
+User Prompt
+    ?
+1. PARSE INTENT
+    ?
+2. CREATE PLAN (LLM)
+    ?
+3. EXECUTE STEPS (Tools)
+    ?
+4. REFLECT & ANALYZE (LLM)
+    ?
+Final Response
 ```
+
+## ?? Security
+
+### Credentials
+- Stored in `~/.mcp/config.yaml` (0600 permissions)
+- LLM API keys in environment variables
+- SSH key-based auth recommended
+- Never committed to version control
+
+### Safety Features
+- **Confirmation required** for destructive operations
+- **Command allowlists** - Only permitted commands
+- **Blocked patterns** - Dangerous commands blocked
+- **Data redaction** - Secrets removed before LLM
+- **Read-only default** - Most operations are diagnostic
+
+### Best Practices
+```bash
+# ? Good - use SSH keys
+mcp config add-ssh server host user --key ~/.ssh/id_rsa
+
+# ? Avoid - plain text passwords
+mcp config add-ssh server host user --password secret
+
+# ? Good - environment variables for LLM keys
+export OPENAI_API_KEY=sk-...
+
+# ? Avoid - hardcoded in config
+```
+
+## ?? Documentation
+
+- **[AI Agent Guide](docs/AI_AGENT_GUIDE.md)** - Complete AI agent documentation
+- **[Architecture Overview](docs/ARCHITECTURE_OVERVIEW.md)** - System design and data flow
+- **[MCP Integration](docs/MCP_INTEGRATION.md)** - Cursor/IDE integration
+- **[Configuration](config.example.yaml)** - Full config reference
 
 ## ??? Roadmap
 
-### Phase 1: Prototype/MVP ? (Current)
-- [x] Core architecture and project structure
-- [x] SSH access and remote command execution
-- [x] Docker container management
-- [x] Log access and retrieval
-- [x] Kubernetes service integration
-- [x] Command aliases
-- [x] CLI interface with rich output
+### ? Phase 1: Core Platform (DONE)
+- [x] SSH, Docker, Kubernetes management
+- [x] Traditional CLI interface
+- [x] MCP protocol server
+- [x] Configuration management
 
-### Phase 2: Stabilization and Hardening
-- [ ] Enhanced error handling and retries
-- [ ] Support for additional authentication methods
-- [ ] Encrypted local credential storage
-- [ ] OS keychain integration
-- [ ] Performance optimization
-- [ ] Cross-platform testing (Linux, macOS, Windows)
-- [ ] Comprehensive test suite
+### ? Phase 2: AI Integration (DONE)
+- [x] Multi-LLM support (OpenAI, Anthropic, Ollama)
+- [x] Plan-execute-reflect agent loop
+- [x] Cost management and optimization
+- [x] Interactive REPL mode
+- [x] Token optimization
 
-### Phase 3: Extended Features
-- [ ] Plugin system for extensibility
-- [ ] Task queuing and scheduling
-- [ ] Basic web API
-- [ ] Secret vault integration (Vault, AWS, Azure)
-- [ ] Multi-server parallel operations
-- [ ] Enhanced logging and audit trails
-- [ ] Configuration templates and imports
+### ?? Phase 3: Enhanced AI (IN PROGRESS)
+- [ ] Multi-turn self-correction
+- [ ] Learning from incidents
+- [ ] Automated runbook execution
+- [ ] Voice interface
+- [ ] Visual dashboards
 
-### Phase 4: Central Server Mode
+### ?? Phase 4: Team & Enterprise
 - [ ] Multi-user support
-- [ ] Role-based access control (RBAC)
+- [ ] RBAC and permissions
+- [ ] PagerDuty/Slack integration
+- [ ] Incident management
+- [ ] Team collaboration
 - [ ] Web UI dashboard
-- [ ] Real-time notifications
-- [ ] Alerting and monitoring integration
-- [ ] SSO authentication
-- [ ] Advanced audit logging
-- [ ] Team collaboration features
 
-## ?? Development
+## ?? Use Cases
 
-### Running Tests
-
+### DevOps On-Call
 ```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=mcp --cov-report=html
+# Incident investigation
+mcp ai chat
+You: PagerDuty alert - API latency high
+AI: [checks metrics, logs, pods] 
+AI: Database connection pool exhausted...
 ```
 
-### Code Style
-
+### Infrastructure Audits
 ```bash
-# Format code
-black src/
-
-# Lint code
-flake8 src/
-
-# Type checking
-mypy src/
+mcp ai ask "Check all production servers for security updates"
+mcp ai ask "What containers are running outdated images?"
 ```
 
-### Project Structure
-
+### Capacity Planning
+```bash
+mcp ai ask "Show resource usage trends for last week"
+mcp ai ask "Which servers need more disk space?"
 ```
-mcp-server/
-??? src/
-?   ??? mcp/
-?       ??? __init__.py
-?       ??? cli.py              # CLI interface
-?       ??? config.py           # Configuration management
-?       ??? ssh_manager.py      # SSH operations
-?       ??? docker_manager.py   # Docker operations
-?       ??? k8s_manager.py      # Kubernetes operations
-??? tests/
-?   ??? test_config.py
-?   ??? test_ssh.py
-?   ??? test_docker.py
-?   ??? test_k8s.py
-??? docs/
-?   ??? security.md
-?   ??? configuration.md
-?   ??? examples.md
-??? setup.py
-??? requirements.txt
-??? README.md
-??? .gitignore
+
+### Developer Productivity
+```bash
+# In Cursor while coding
+You: "Check if staging deployment succeeded"
+Cursor AI ? orbit-mcp ? K8s ? "Deployment successful, 3/3 pods ready"
 ```
 
 ## ?? Contributing
 
-Contributions are welcome! Please follow these guidelines:
+Contributions welcome! Please:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create feature branch (`git checkout -b feature/amazing`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing`)
+5. Open Pull Request
 
 ## ?? License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) file
 
 ## ?? Support
 
-For issues, questions, or feature requests, please:
-- Open an issue on GitHub
-- Contact the DevOps team
-- Check the documentation in the `docs/` directory
+- ?? [Open an issue](https://github.com/yourorg/orbit-mcp/issues)
+- ?? Contact DevOps team
+- ?? Check [documentation](docs/)
 
 ## ?? Acknowledgments
 
-- Built with Python, Paramiko, Docker SDK, and Kubernetes Client
-- Inspired by best practices in DevOps tooling and internal developer platforms
-- Thanks to the open-source community for excellent libraries
+- Built with Python, Paramiko, Docker SDK, Kubernetes Client
+- LLM integration: OpenAI, Anthropic, Ollama
+- MCP protocol for AI tool integration
+- Inspired by best practices in AI agents and DevOps automation
 
 ---
 
-**Note**: This is an internal DevOps tool. Handle credentials with care and follow your organization's security policies.
+## ? Quick Command Reference
+
+```bash
+# AI Agent
+mcp ai ask "<prompt>"              # One-shot query
+mcp ai chat                        # Interactive mode
+mcp ai models                      # List LLM models
+mcp ai usage                       # Show costs
+
+# Traditional CLI
+mcp ssh exec <server> "<command>"  # Execute command
+mcp docker ps                      # List containers
+mcp k8s pods -n <namespace>        # List pods
+
+# Configuration
+mcp config list                    # Show config
+mcp config show                    # Display full config
+```
+
+**Start using Orbit AI today! ??**
+
+```bash
+pip install -e .
+mcp ai ask "Hello, introduce yourself"
+```
