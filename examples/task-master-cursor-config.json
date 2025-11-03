@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "task-master": {
-      "command": "mcp-server",
-      "args": ["--transport", "stdio"],
+      "command": "python3",
+      "args": ["-m", "src.mcp.mcp_main", "--transport", "stdio"],
       "env": {
         "OPENAI_API_KEY": "${OPENAI_API_KEY}",
         "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"

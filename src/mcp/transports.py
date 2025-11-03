@@ -41,35 +41,67 @@ class StdioTransport(MCPTransport):
         logger.info("Starting STDIO transport")
         self.running = True
         
+        # Use unbuffered reading for better responsiveness
+        # Read from stdin in a loop, processing JSON-RPC messages
+        loop = asyncio.get_event_loop()
+        
+        def read_line():
+            """Read a line from stdin (blocking, runs in executor)."""
+            try:
+                return sys.stdin.readline()
+            except (EOFError, OSError):
+                return None
+        
         try:
             while self.running:
-                # Read line from stdin
+                # Read line from stdin (non-blocking via executor)
                 try:
-                    line = await asyncio.get_event_loop().run_in_executor(
-                        None, sys.stdin.readline
-                    )
+                    line = await loop.run_in_executor(None, read_line)
                     
-                    if not line:  # EOF
-                        logger.info("EOF received, stopping server")
-                        break
+                    if not line or not line.strip():  # EOF or empty line
+                        if not line:  # EOF
+                            logger.info("EOF received, stopping server")
+                            break
+                        continue
                     
-                    line = line.strip()
+                    # Strip trailing newline but keep the JSON content
+                    line = line.rstrip('\n\r')
                     if not line:
                         continue
                     
-                    logger.debug(f"Received: {line}")
+                    logger.debug(f"Received: {line[:200]}...")  # Log first 200 chars
                     
                     # Process message
                     response = self.server.process_message(line)
                     
                     if response:
-                        # Write response to stdout
-                        sys.stdout.write(response + "\n")
+                        # Write JSON-RPC response to stdout (must be pure JSON, no extra text)
+                        # Use write() + flush() for immediate output
+                        sys.stdout.write(response)
+                        sys.stdout.write('\n')
                         sys.stdout.flush()
-                        logger.debug(f"Sent: {response}")
+                        logger.debug(f"Sent response (length: {len(response)})")
                 
                 except Exception as e:
                     logger.error(f"Error processing message: {e}", exc_info=True)
+                    # Send error response if we can identify the request
+                    try:
+                        import json
+                        request = json.loads(line)
+                        request_id = request.get('id')
+                        if request_id is not None:
+                            error_response = json.dumps({
+                                "jsonrpc": "2.0",
+                                "id": request_id,
+                                "error": {
+                                    "code": -32603,
+                                    "message": f"Internal error: {str(e)}"
+                                }
+                            })
+                            sys.stdout.write(error_response + '\n')
+                            sys.stdout.flush()
+                    except:
+                        pass  # Can't send error response
                     # Continue processing next message
         
         finally:
