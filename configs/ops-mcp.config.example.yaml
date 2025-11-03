@@ -1,0 +1,144 @@
+# Ops MCP Server Configuration
+# Copy to /etc/ops-mcp/config.yaml or set OPS_CONFIG env var
+
+# Default profile to use if MCP_PROFILE env var is not set
+default_profile: prod
+
+# Profile definitions
+profiles:
+  prod:
+    ssh:
+      hosts:
+        prod-web-01:
+          host: 192.168.1.100
+          user: admin
+          port: 22
+          key_path: ~/.ssh/id_rsa
+        prod-web-02:
+          host: 192.168.1.101
+          user: admin
+          port: 22
+          key_path: ~/.ssh/id_rsa
+        prod-db-01:
+          host: 192.168.1.200
+          user: postgres
+          port: 22
+          key_path: ~/.ssh/db_key
+        
+      bastion:
+        host: bastion.example.com
+        user: admin
+        port: 22
+      
+      allowed_commands:
+        # Command keys map to templates
+        uptime:
+          template: "uptime"
+          description: "Check system uptime"
+        
+        disk_usage:
+          template: "df -h"
+          description: "Check disk usage"
+        
+        service_status:
+          template: "systemctl status {service_name}"
+          description: "Check service status"
+        
+        tail_log:
+          template: "tail -n {lines} {log_path}"
+          description: "Tail log file"
+        
+        check_port:
+          template: "netstat -tuln | grep {port}"
+          description: "Check if port is listening"
+        
+        healthcheck:
+          template: "bash /opt/scripts/healthcheck.sh"
+          description: "Run healthcheck script"
+      
+      redaction_rules:
+        - "(?i)(password|passwd|pwd)\\s*[:=]\\s*(\\S+)"
+        - "(?i)(api[_-]?key|apikey)\\s*[:=]\\s*(\\S+)"
+        - "(?i)(token|secret)\\s*[:=]\\s*(\\S+)"
+        - "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+    
+    tickets:
+      system: jira
+      project: PROD
+      labels:
+        - production
+        - ops
+      space: OPS
+    
+    alerts:
+      source: alerta
+      namespace: production
+      endpoint: https://alerta.example.com/api
+    
+    knowledge_base:
+      type: confluence
+      space: OPS
+      endpoint: https://wiki.example.com/rest/api
+
+  staging:
+    ssh:
+      hosts:
+        staging-web-01:
+          host: 192.168.2.100
+          user: admin
+          port: 22
+          key_path: ~/.ssh/staging_key
+    
+    tickets:
+      system: github
+      project: null  # GitHub uses owner/repo
+      labels:
+        - staging
+        - ops
+    
+    alerts:
+      source: alerta
+      namespace: staging
+      endpoint: https://alerta-staging.example.com/api
+
+  dev:
+    ssh:
+      hosts:
+        dev-web-01:
+          host: 192.168.3.100
+          user: developer
+          port: 22
+          key_path: ~/.ssh/dev_key
+    
+    tickets:
+      system: github
+      project: null
+      labels:
+        - development
+    
+    alerts:
+      source: alerta
+      namespace: development
+      endpoint: https://alerta-dev.example.com/api
+
+# Global ticket system configuration
+tickets:
+  jira:
+    endpoint: https://company.atlassian.net
+    email: ${JIRA_EMAIL}  # From environment
+    api_token: ${JIRA_API_TOKEN}  # From environment
+  
+  github:
+    owner: company
+    repo: ops-issues
+    token: ${GITHUB_TOKEN}  # From environment
+
+# Global alert system configuration
+alerts:
+  endpoint: https://alerta.example.com/api
+  api_key: ${ALERTA_API_KEY}  # From environment
+
+# Resource configuration
+resources:
+  cache_ttl: 300  # Cache resources for 5 minutes
+  local_runbooks_path: ./docs/runbooks

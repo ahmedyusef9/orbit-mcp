@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "ops-global": {
+      "command": "python3",
+      "args": ["-m", "src.mcp.ops_main", "--transport", "stdio"],
+      "disabled": false,
+      "env": {
+        "MCP_PROFILE": "prod",
+        "OPS_CONFIG": "/etc/ops-mcp/config.yaml",
+        "JIRA_EMAIL": "${JIRA_EMAIL}",
+        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}",
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+        "ALERTA_API_KEY": "${ALERTA_API_KEY}"
+      },
+      "description": "Global Ops MCP Server - SSH, ticketing, alerts, and workflow automation"
+    }
+  }
+}
