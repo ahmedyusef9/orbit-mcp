@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ops-global": {
+      "env": {
+        "MCP_PROFILE": "staging",
+        "OPS_CONFIG": ".cursor/ops-config.yaml"
+      }
+    }
+  }
+}

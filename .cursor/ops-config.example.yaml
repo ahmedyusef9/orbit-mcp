@@ -1,0 +1,46 @@
+# Per-project Ops MCP Configuration
+# Place this in your project's .cursor/ops-config.yaml
+# This overrides global config for project-specific settings
+
+default_profile: staging
+
+profiles:
+  staging:
+    ssh:
+      hosts:
+        staging-api-01:
+          host: staging-api.internal.example.com
+          user: deploy
+          port: 22
+          key_path: ~/.ssh/staging_key
+        
+      allowed_commands:
+        deploy_status:
+          template: "cat /var/lib/app/deployment-status.json"
+          description: "Check deployment status"
+        
+        app_logs:
+          template: "tail -n {lines} /var/log/app/app.log"
+          description: "View application logs"
+    
+    tickets:
+      system: github
+      project: null
+      labels:
+        - project-specific
+        - staging
+    
+    alerts:
+      source: alerta
+      namespace: staging
+      endpoint: https://alerta-staging.example.com/api
+
+tickets:
+  github:
+    owner: company
+    repo: project-ops
+    token: ${GITHUB_TOKEN}
+
+alerts:
+  endpoint: https://alerta-staging.example.com/api
+  api_key: ${ALERTA_API_KEY}
