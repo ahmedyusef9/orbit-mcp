@@ -13,6 +13,9 @@ from .config import ConfigManager
 from .ssh_manager import SSHManager
 from .docker_manager import DockerManager
 from .k8s_manager import KubernetesManager
+from .task_manager import TaskManager, TaskStatus
+from .prd_parser import PRDParser
+from .llm.providers import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +36,23 @@ class MCPDevOpsServer:
         self.docker_manager = DockerManager(self.ssh_manager)
         self.k8s_manager = KubernetesManager()
         
+        # Initialize task management
+        self.task_manager = TaskManager()
+        
+        # Initialize LLM client for PRD parsing and task expansion
+        try:
+            llm_config = self.config.config.get("llm", {})
+            self.llm_client = LLMClient(llm_config)
+            self.prd_parser = PRDParser(self.llm_client)
+        except Exception as e:
+            logger.warning(f"Failed to initialize LLM client: {e}. Task parsing features will be limited.")
+            self.llm_client = None
+            self.prd_parser = None
+        
         # Server info
         server_info = ServerInfo(
             name="mcp-devops-server",
-            version="0.1.0"
+            version="0.2.0"
         )
         
         # Capabilities - we support tools
@@ -399,6 +415,172 @@ class MCPDevOpsServer:
                     },
                     "required": ["server"]
                 }
+            ),
+            
+            # Task Management Tools
+            Tool(
+                name="parse_prd",
+                description="Parse a Product Requirements Document (PRD) and generate structured tasks",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "prd_path": {
+                            "type": "string",
+                            "description": "Path to PRD file (e.g., prd.txt, prd.md, or .taskmaster/prd.txt)"
+                        },
+                        "provider": {
+                            "type": "string",
+                            "description": "LLM provider to use (anthropic, openai, ollama). Optional, uses default if not specified."
+                        }
+                    },
+                    "required": ["prd_path"]
+                }
+            ),
+            
+            Tool(
+                name="get_tasks",
+                description="Get all tasks, optionally filtered by status",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "status": {
+                            "type": "string",
+                            "description": "Filter by status (backlog, in-progress, done, blocked, cancelled)",
+                            "enum": ["backlog", "in-progress", "done", "blocked", "cancelled"]
+                        },
+                        "include_done": {
+                            "type": "boolean",
+                            "description": "Whether to include completed tasks",
+                            "default": True
+                        }
+                    }
+                }
+            ),
+            
+            Tool(
+                name="get_task",
+                description="Get details of a specific task by ID",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            ),
+            
+            Tool(
+                name="add_task",
+                description="Add a new task to the task list",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "Task description"
+                        },
+                        "task_id": {
+                            "type": "string",
+                            "description": "Optional task ID (auto-generated if not provided)"
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "Initial status",
+                            "enum": ["backlog", "in-progress", "done", "blocked", "cancelled"],
+                            "default": "backlog"
+                        },
+                        "dependencies": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of task IDs this task depends on"
+                        },
+                        "priority": {
+                            "type": "integer",
+                            "description": "Priority (0-10, higher = more important)",
+                            "default": 0
+                        }
+                    },
+                    "required": ["description"]
+                }
+            ),
+            
+            Tool(
+                name="set_task_status",
+                description="Update the status of a task",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID"
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "New status",
+                            "enum": ["backlog", "in-progress", "done", "blocked", "cancelled"]
+                        }
+                    },
+                    "required": ["task_id", "status"]
+                }
+            ),
+            
+            Tool(
+                name="remove_task",
+                description="Remove a task from the task list",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID to remove"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            ),
+            
+            Tool(
+                name="next_task",
+                description="Get the next highest-priority task ready to work on (dependencies satisfied)",
+                inputSchema={
+                    "type": "object",
+                    "properties": {}
+                }
+            ),
+            
+            Tool(
+                name="expand_task",
+                description="Expand a task into subtasks using LLM analysis, optionally with research",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task ID to expand"
+                        },
+                        "research_query": {
+                            "type": "string",
+                            "description": "Optional research query for gathering additional context"
+                        },
+                        "provider": {
+                            "type": "string",
+                            "description": "LLM provider to use for expansion"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            ),
+            
+            Tool(
+                name="validate_dependencies",
+                description="Validate task dependencies and check for circular dependencies or missing references",
+                inputSchema={
+                    "type": "object",
+                    "properties": {}
+                }
             )
         ]
     
@@ -457,7 +639,17 @@ class MCPDevOpsServer:
             "k8s_restart_deployment": self._tool_k8s_restart_deployment,
             "query_logs": self._tool_query_logs,
             "system_info": self._tool_system_info,
-            "disk_usage": self._tool_disk_usage
+            "disk_usage": self._tool_disk_usage,
+            # Task Management Tools
+            "parse_prd": self._tool_parse_prd,
+            "get_tasks": self._tool_get_tasks,
+            "get_task": self._tool_get_task,
+            "add_task": self._tool_add_task,
+            "set_task_status": self._tool_set_task_status,
+            "remove_task": self._tool_remove_task,
+            "next_task": self._tool_next_task,
+            "expand_task": self._tool_expand_task,
+            "validate_dependencies": self._tool_validate_dependencies
         }
         
         handler = handler_map.get(tool_name)
@@ -898,6 +1090,345 @@ class MCPDevOpsServer:
                 f"Failed to get disk usage: {str(e)}",
                 is_error=True
             )
+    
+    # Task Management Tool Implementations
+    
+    def _tool_parse_prd(self, args: Dict[str, Any]) -> ToolResult:
+        """Parse PRD and generate tasks."""
+        prd_path = args["prd_path"]
+        provider = args.get("provider")
+        
+        if not self.prd_parser:
+            return create_tool_result(
+                "PRD parsing requires LLM client to be configured. Please configure LLM providers in config.yaml",
+                is_error=True
+            )
+        
+        try:
+            import asyncio
+            
+            # Run async PRD parsing
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(
+                self.prd_parser.parse_prd(prd_path, provider)
+            )
+            loop.close()
+            
+            if not result.get("success"):
+                return create_tool_result(
+                    "PRD parsing failed",
+                    is_error=True
+                )
+            
+            # Add tasks to task manager
+            tasks_created = []
+            for task_data in result.get("tasks", []):
+                try:
+                    task = self.task_manager.add_task(
+                        description=task_data["description"],
+                        task_id=task_data.get("id"),
+                        status=TaskStatus(task_data.get("status", "backlog")),
+                        dependencies=task_data.get("dependencies", []),
+                        priority=task_data.get("priority", 0)
+                    )
+                    tasks_created.append(task.to_dict())
+                except Exception as e:
+                    logger.warning(f"Failed to add task {task_data.get('id')}: {e}")
+            
+            # Add subtasks if any
+            subtasks_map = {st["id"]: st for st in result.get("subtasks", [])}
+            for subtask_data in subtasks_map.values():
+                parent_id = subtask_data.get("parent_task")
+                if parent_id:
+                    try:
+                        task = self.task_manager.add_task(
+                            description=subtask_data["description"],
+                            task_id=subtask_data["id"],
+                            status=TaskStatus.BACKLOG,
+                            dependencies=[parent_id],
+                            priority=self.task_manager.get_task(parent_id).priority if parent_id in self.task_manager.tasks else 0
+                        )
+                        # Update parent task's subtasks list
+                        parent = self.task_manager.get_task(parent_id)
+                        if parent and task.id not in parent.subtasks:
+                            parent.subtasks.append(task.id)
+                            self.task_manager._save_tasks()
+                        tasks_created.append(task.to_dict())
+                    except Exception as e:
+                        logger.warning(f"Failed to add subtask {subtask_data.get('id')}: {e}")
+            
+            summary = result.get("summary", "")
+            metadata = result.get("metadata", {})
+            
+            text = f"PRD parsed successfully!\n\nSummary: {summary}\n\nCreated {len(tasks_created)} tasks.\n\nTasks:\n"
+            for task_dict in tasks_created[:10]:  # Show first 10
+                text += f"- [{task_dict['id']}] {task_dict['description']} (priority: {task_dict['priority']})\n"
+            if len(tasks_created) > 10:
+                text += f"... and {len(tasks_created) - 10} more tasks\n"
+            
+            return create_structured_tool_result(
+                text,
+                {
+                    "summary": summary,
+                    "tasks_created": len(tasks_created),
+                    "tasks": tasks_created,
+                    "metadata": metadata
+                }
+            )
+        
+        except Exception as e:
+            logger.error(f"PRD parsing failed: {e}", exc_info=True)
+            return create_tool_result(
+                f"Failed to parse PRD: {str(e)}",
+                is_error=True
+            )
+    
+    def _tool_get_tasks(self, args: Dict[str, Any]) -> ToolResult:
+        """Get all tasks."""
+        status_str = args.get("status")
+        include_done = args.get("include_done", True)
+        
+        status = None
+        if status_str:
+            try:
+                status = TaskStatus(status_str)
+            except ValueError:
+                return create_tool_result(
+                    f"Invalid status: {status_str}",
+                    is_error=True
+                )
+        
+        tasks = self.task_manager.get_tasks(status=status, include_done=include_done)
+        task_dicts = [task.to_dict() for task in tasks]
+        
+        text = f"Found {len(tasks)} tasks:\n\n"
+        for task_dict in task_dicts[:20]:  # Show first 20
+            text += f"- [{task_dict['status']}] {task_dict['id']}: {task_dict['description']}\n"
+        if len(tasks) > 20:
+            text += f"... and {len(tasks) - 20} more tasks\n"
+        
+        return create_structured_tool_result(text, {"tasks": task_dicts, "count": len(tasks)})
+    
+    def _tool_get_task(self, args: Dict[str, Any]) -> ToolResult:
+        """Get a specific task."""
+        task_id = args["task_id"]
+        task = self.task_manager.get_task(task_id)
+        
+        if not task:
+            return create_tool_result(
+                f"Task not found: {task_id}",
+                is_error=True
+            )
+        
+        task_dict = task.to_dict()
+        
+        text = f"Task: {task_id}\n"
+        text += f"Status: {task.status.value}\n"
+        text += f"Description: {task.description}\n"
+        text += f"Priority: {task.priority}\n"
+        if task.dependencies:
+            text += f"Dependencies: {', '.join(task.dependencies)}\n"
+        if task.subtasks:
+            text += f"Subtasks: {', '.join(task.subtasks)}\n"
+        
+        return create_structured_tool_result(text, task_dict)
+    
+    def _tool_add_task(self, args: Dict[str, Any]) -> ToolResult:
+        """Add a new task."""
+        description = args["description"]
+        task_id = args.get("task_id")
+        status_str = args.get("status", "backlog")
+        dependencies = args.get("dependencies", [])
+        priority = args.get("priority", 0)
+        
+        try:
+            status = TaskStatus(status_str)
+        except ValueError:
+            return create_tool_result(
+                f"Invalid status: {status_str}",
+                is_error=True
+            )
+        
+        try:
+            task = self.task_manager.add_task(
+                description=description,
+                task_id=task_id,
+                status=status,
+                dependencies=dependencies,
+                priority=priority
+            )
+            
+            text = f"Added task: {task.id}\nDescription: {task.description}\nStatus: {task.status.value}\nPriority: {task.priority}"
+            
+            return create_structured_tool_result(text, task.to_dict())
+        except Exception as e:
+            return create_tool_result(
+                f"Failed to add task: {str(e)}",
+                is_error=True
+            )
+    
+    def _tool_set_task_status(self, args: Dict[str, Any]) -> ToolResult:
+        """Set task status."""
+        task_id = args["task_id"]
+        status_str = args["status"]
+        
+        try:
+            status = TaskStatus(status_str)
+        except ValueError:
+            return create_tool_result(
+                f"Invalid status: {status_str}",
+                is_error=True
+            )
+        
+        try:
+            task = self.task_manager.set_task_status(task_id, status)
+            text = f"Updated task {task_id} status to {status.value}"
+            return create_structured_tool_result(text, task.to_dict())
+        except ValueError as e:
+            return create_tool_result(
+                f"Failed to update task status: {str(e)}",
+                is_error=True
+            )
+    
+    def _tool_remove_task(self, args: Dict[str, Any]) -> ToolResult:
+        """Remove a task."""
+        task_id = args["task_id"]
+        
+        try:
+            success = self.task_manager.remove_task(task_id)
+            if success:
+                return create_tool_result(f"Removed task: {task_id}")
+            else:
+                return create_tool_result(
+                    f"Task not found: {task_id}",
+                    is_error=True
+                )
+        except ValueError as e:
+            return create_tool_result(
+                f"Cannot remove task: {str(e)}",
+                is_error=True
+            )
+    
+    def _tool_next_task(self, args: Dict[str, Any]) -> ToolResult:
+        """Get next task to work on."""
+        next_task = self.task_manager.next_task()
+        
+        if not next_task:
+            return create_tool_result(
+                "No tasks ready to work on. All tasks are either done or have unmet dependencies.",
+                is_error=False
+            )
+        
+        text = f"Next task to work on:\n\n"
+        text += f"ID: {next_task.id}\n"
+        text += f"Description: {next_task.description}\n"
+        text += f"Status: {next_task.status.value}\n"
+        text += f"Priority: {next_task.priority}\n"
+        if next_task.dependencies:
+            text += f"Dependencies: {', '.join(next_task.dependencies)} (all satisfied)\n"
+        
+        return create_structured_tool_result(text, next_task.to_dict())
+    
+    def _tool_expand_task(self, args: Dict[str, Any]) -> ToolResult:
+        """Expand a task into subtasks."""
+        task_id = args["task_id"]
+        research_query = args.get("research_query")
+        provider = args.get("provider")
+        
+        task = self.task_manager.get_task(task_id)
+        if not task:
+            return create_tool_result(
+                f"Task not found: {task_id}",
+                is_error=True
+            )
+        
+        if not self.prd_parser:
+            return create_tool_result(
+                "Task expansion requires LLM client to be configured.",
+                is_error=True
+            )
+        
+        try:
+            import asyncio
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(
+                self.prd_parser.expand_task_with_research(
+                    task.description,
+                    research_query,
+                    provider
+                )
+            )
+            loop.close()
+            
+            if not result.get("success"):
+                return create_tool_result(
+                    "Task expansion failed",
+                    is_error=True
+                )
+            
+            subtasks = result.get("subtasks", [])
+            if not subtasks:
+                return create_tool_result(
+                    "No subtasks generated",
+                    is_error=False
+                )
+            
+            # Expand the task
+            expanded = self.task_manager.expand_task(task_id, subtasks)
+            
+            text = f"Expanded task {task_id} into {len(subtasks)} subtasks:\n\n"
+            for i, subtask_desc in enumerate(subtasks, 1):
+                text += f"{i}. {subtask_desc}\n"
+            
+            return create_structured_tool_result(
+                text,
+                {
+                    "task_id": task_id,
+                    "subtasks": subtasks,
+                    "analysis": result.get("analysis", ""),
+                    "metadata": result.get("metadata", {})
+                }
+            )
+        except Exception as e:
+            logger.error(f"Task expansion failed: {e}", exc_info=True)
+            return create_tool_result(
+                f"Failed to expand task: {str(e)}",
+                is_error=True
+            )
+    
+    def _tool_validate_dependencies(self, args: Dict[str, Any]) -> ToolResult:
+        """Validate task dependencies."""
+        validation = self.task_manager.validate_dependencies()
+        
+        is_valid = validation["valid"]
+        issues = validation["issues"]
+        
+        text = f"Dependency Validation Results:\n\n"
+        text += f"Valid: {is_valid}\n"
+        text += f"Total tasks: {validation['total_tasks']}\n\n"
+        
+        text += f"Tasks by status:\n"
+        for status, count in validation["tasks_by_status"].items():
+            if count > 0:
+                text += f"  {status}: {count}\n"
+        
+        if not is_valid:
+            text += "\nIssues found:\n"
+            if issues["circular_dependencies"]:
+                text += f"  Circular dependencies: {issues['circular_dependencies']}\n"
+            if issues["missing_dependencies"]:
+                text += f"  Missing dependencies: {len(issues['missing_dependencies'])} found\n"
+                for issue in issues["missing_dependencies"][:5]:
+                    text += f"    - Task {issue['task']} depends on missing task {issue['missing_dependency']}\n"
+            if issues["orphaned_tasks"]:
+                text += f"  Orphaned tasks: {len(issues['orphaned_tasks'])} found\n"
+        else:
+            text += "\nNo dependency issues found!\n"
+        
+        return create_structured_tool_result(text, validation)
     
     def process_message(self, message: str) -> Optional[str]:
         """

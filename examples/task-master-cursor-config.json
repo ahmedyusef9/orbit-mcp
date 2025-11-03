@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "task-master": {
+      "command": "mcp-server",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      },
+      "description": "Task Master MCP Server - AI-powered project management and task tracking with PRD parsing, dependency management, and task expansion"
+    }
+  }
+}
