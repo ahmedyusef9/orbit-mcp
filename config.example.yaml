@@ -1,0 +1,125 @@
+# Orbit-MCP Configuration Example
+# Copy this to ~/.mcp/config.yaml and customize
+
+# SSH Server configurations
+ssh:
+  servers:
+    prod-web-01:
+      host: 192.168.1.100
+      port: 22
+      username: admin
+      # Use key_file or password (key_file recommended)
+      key_file: ~/.ssh/id_rsa
+      # password: secret123
+    
+    staging-db:
+      host: 192.168.1.101
+      port: 22
+      username: deploy
+      key_file: ~/.ssh/deploy_key
+
+# Docker host configurations
+docker:
+  hosts:
+    local:
+      type: local
+      socket: unix:///var/run/docker.sock
+    
+    remote-docker:
+      type: ssh
+      ssh_server: prod-web-01  # Reference to SSH server above
+      socket: unix:///var/run/docker.sock
+
+# Kubernetes cluster configurations
+kubernetes:
+  clusters:
+    prod-k8s:
+      kubeconfig: ~/.kube/config
+      context: prod-cluster
+      namespace: default
+    
+    staging-k8s:
+      kubeconfig: ~/.kube/staging-config
+      context: staging
+      namespace: default
+
+# LLM / AI Agent Configuration
+llm:
+  # Default provider to use
+  default_provider: ollama  # Options: openai, anthropic, ollama
+  
+  # Provider configurations
+  providers:
+    # OpenAI / ChatGPT
+    openai:
+      enabled: true
+      model: gpt-3.5-turbo  # Options: gpt-3.5-turbo, gpt-4, gpt-4-turbo
+      api_key: ${OPENAI_API_KEY}  # Or set directly (not recommended)
+      # api_key: sk-...
+    
+    # Anthropic / Claude
+    anthropic:
+      enabled: true
+      model: claude-3-sonnet  # Options: claude-3-opus, claude-3-sonnet, claude-3-haiku
+      api_key: ${ANTHROPIC_API_KEY}
+      # api_key: sk-ant-...
+    
+    # Local models via Ollama
+    ollama:
+      enabled: true
+      model: llama2  # Options: llama2, mistral, codellama, etc.
+      base_url: http://localhost:11434
+  
+  # Cost control settings
+  cost_control:
+    daily_budget: 10.0     # Maximum $ per day
+    monthly_budget: 200.0  # Maximum $ per month
+    alert_at: 0.8          # Alert when reaching 80% of budget
+    
+    # Auto-switch to cheaper models when approaching limits
+    auto_optimize: true
+    
+    # Prefer local models for simple tasks
+    prefer_local: true
+  
+  # Token optimization
+  token_optimization:
+    max_context_tokens: 4000  # Maximum context size
+    aggressive_truncation: true
+    log_summarization: true
+
+# Command aliases (shortcuts)
+aliases:
+  check-web: "ssh prod-web-01 systemctl status nginx"
+  logs-web: "ssh prod-web-01 tail -f /var/log/nginx/error.log"
+  restart-app: "ssh prod-web-01 systemctl restart myapp"
+
+# Logging configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  file: ~/.mcp/logs/orbit.log
+  max_size: 10485760  # 10MB
+  backup_count: 5
+
+# Security settings
+security:
+  # Confirm before destructive operations
+  confirm_destructive: true
+  
+  # Allowed commands for SSH (security allowlist)
+  allowed_commands:
+    - systemctl
+    - journalctl
+    - docker
+    - kubectl
+    - tail
+    - cat
+    - grep
+    - ls
+  
+  # Blocked patterns (deny dangerous operations)
+  blocked_patterns:
+    - rm -rf
+    - mkfs
+    - dd if=
+    - "> /dev"

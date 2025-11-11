@@ -1,0 +1,409 @@
+name: Orbit-MCP Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black mypy
+    
+    - name: Run flake8
+      run: flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+    
+    - name: Check code formatting with black
+      run: black --check src/
+    
+    - name: Type check with mypy
+      run: mypy src/ --ignore-missing-imports
+      continue-on-error: true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/ \
+          -v \
+          --cov=src \
+          --cov-report=xml \
+          --cov-report=term-missing \
+          -m "not integration and not llm and not slow"
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-${{ matrix.python-version }}
+
+  integration-tests-infra:
+    name: Infrastructure Integration Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      ssh-server:
+        image: linuxserver/openssh-server:latest
+        ports:
+          - 2222:2222
+        env:
+          PUID: 1000
+          PGID: 1000
+          TZ: UTC
+          PASSWORD_ACCESS: true
+          USER_PASSWORD: testpassword
+          USER_NAME: testuser
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Set up kind (Kubernetes in Docker)
+      uses: helm/kind-action@v1
+      with:
+        cluster_name: orbit-test
+        wait: 30s
+    
+    - name: Verify kind cluster
+      run: |
+        kubectl cluster-info
+        kubectl get nodes
+    
+    - name: Run SSH integration tests
+      run: |
+        pytest tests/ \
+          -v \
+          -m "integration and ssh" \
+          --tb=short
+    
+    - name: Run Docker integration tests
+      run: |
+        pytest tests/ \
+          -v \
+          -m "integration and docker" \
+          --tb=short
+    
+    - name: Run Kubernetes integration tests
+      run: |
+        pytest tests/ \
+          -v \
+          -m "integration and k8s" \
+          --tb=short
+      env:
+        KUBECONFIG: /home/runner/.kube/config
+
+  integration-tests-llm:
+    name: LLM Integration Tests
+    runs-on: ubuntu-latest
+    # Only run on main branch and scheduled runs (not PRs from forks)
+    if: github.event_name == 'schedule' || github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Install Ollama (for local LLM tests)
+      run: |
+        curl -fsSL https://ollama.ai/install.sh | sh
+        ollama pull llama2:7b-chat
+      continue-on-error: true
+    
+    - name: Run LLM integration tests (OpenAI)
+      if: secrets.OPENAI_API_KEY != ''
+      run: |
+        pytest tests/ \
+          -v \
+          -m "llm" \
+          -k "openai" \
+          --tb=short
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      continue-on-error: true
+    
+    - name: Run LLM integration tests (Anthropic)
+      if: secrets.ANTHROPIC_API_KEY != ''
+      run: |
+        pytest tests/ \
+          -v \
+          -m "llm" \
+          -k "anthropic" \
+          --tb=short
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      continue-on-error: true
+    
+    - name: Run LLM integration tests (Ollama)
+      run: |
+        pytest tests/ \
+          -v \
+          -m "llm" \
+          -k "ollama" \
+          --tb=short
+      continue-on-error: true
+    
+    - name: Report LLM costs
+      if: always()
+      run: |
+        echo "LLM Integration Tests Completed"
+        echo "Check test output for cost information"
+
+  transport-tests:
+    name: Transport Mode Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run transport tests
+      run: |
+        pytest tests/test_transport.py \
+          -v \
+          --tb=short
+
+  cursor-integration-tests:
+    name: Cursor MDC Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run Cursor integration tests
+      run: |
+        pytest tests/test_cursor_integration.py \
+          -v \
+          --tb=short
+
+  mcp-compliance:
+    name: MCP Protocol Compliance
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run MCP compliance tests
+      run: |
+        pytest tests/ \
+          -v \
+          -k "mcp or protocol" \
+          --tb=short
+    
+    - name: Validate tool schemas
+      run: |
+        python scripts/validate_mcp_schemas.py
+      continue-on-error: true
+
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+        pip install bandit safety
+    
+    - name: Run security tests
+      run: |
+        pytest tests/ \
+          -v \
+          -k "security" \
+          --tb=short
+    
+    - name: Run Bandit security linter
+      run: |
+        bandit -r src/ -f json -o bandit-report.json
+      continue-on-error: true
+    
+    - name: Check dependencies for vulnerabilities
+      run: |
+        safety check --json
+      continue-on-error: true
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
+    
+    - name: Run performance tests
+      run: |
+        pytest tests/ \
+          -v \
+          -m "slow" \
+          --tb=short \
+          --durations=10
+
+  build-and-package:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install build tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+    
+    - name: Build package
+      run: |
+        python -m build
+    
+    - name: Check package
+      run: |
+        twine check dist/*
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: dist-packages
+        path: dist/
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [
+      unit-tests,
+      integration-tests-infra,
+      transport-tests,
+      cursor-integration-tests,
+      mcp-compliance
+    ]
+    if: always()
+    
+    steps:
+    - name: Check test results
+      run: |
+        echo "Test suite completed"
+        echo "Review individual job results for details"

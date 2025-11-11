@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "devops-production": {
+      "command": "mcp-server",
+      "args": [
+        "--transport", "stdio",
+        "--config", "~/.mcp/prod-config.yaml"
+      ],
+      "env": {},
+      "description": "Production environment DevOps tools"
+    },
+    "devops-staging": {
+      "command": "mcp-server",
+      "args": [
+        "--transport", "stdio",
+        "--config", "~/.mcp/staging-config.yaml"
+      ],
+      "env": {},
+      "description": "Staging environment DevOps tools"
+    },
+    "devops-development": {
+      "command": "mcp-server",
+      "args": [
+        "--transport", "stdio",
+        "--config", "~/.mcp/dev-config.yaml"
+      ],
+      "env": {},
+      "description": "Development environment DevOps tools"
+    }
+  }
+}

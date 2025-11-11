@@ -1,0 +1,142 @@
+# MCP Server Configuration Example
+# Copy this file to ~/.mcp/config.yaml and customize for your environment
+
+version: "1.0"
+
+# SSH Server Configurations
+ssh_servers:
+  # Production server example
+  - name: prod-web-server
+    host: web.example.com
+    user: admin
+    port: 22
+    key_path: ~/.ssh/id_rsa_prod
+  
+  # Development server example
+  - name: dev-server
+    host: dev.example.com
+    user: developer
+    port: 22
+    key_path: ~/.ssh/id_rsa_dev
+  
+  # AWS EC2 instance example
+  - name: aws-app-server
+    host: ec2-xx-xxx-xxx-xxx.compute.amazonaws.com
+    user: ec2-user
+    port: 22
+    key_path: ~/.ssh/aws-key.pem
+  
+  # Azure VM example
+  - name: azure-vm
+    host: myvm.westus.cloudapp.azure.com
+    user: azureuser
+    port: 22
+    key_path: ~/.ssh/azure_id_rsa
+
+# Docker Host Configurations
+docker_hosts:
+  # Local Docker daemon
+  - name: local-docker
+    host: localhost
+    connection_type: local
+  
+  # Remote Docker via SSH
+  - name: prod-docker
+    host: docker.example.com
+    connection_type: ssh
+    ssh_config:
+      user: admin
+      key_path: ~/.ssh/id_rsa
+      port: 22
+  
+  # Docker on AWS
+  - name: aws-docker
+    host: docker-aws.example.com
+    connection_type: ssh
+    ssh_config:
+      user: ec2-user
+      key_path: ~/.ssh/aws-key.pem
+      port: 22
+
+# Kubernetes Cluster Configurations
+kubernetes_clusters:
+  # Production cluster
+  - name: prod-k8s
+    kubeconfig_path: ~/.kube/config
+    context: prod-cluster
+  
+  # Staging cluster
+  - name: staging-k8s
+    kubeconfig_path: ~/.kube/config
+    context: staging-cluster
+  
+  # Development cluster
+  - name: dev-k8s
+    kubeconfig_path: ~/.kube/dev-config
+    context: dev-cluster
+  
+  # AWS EKS cluster
+  - name: eks-prod
+    kubeconfig_path: ~/.kube/eks-config
+    context: arn:aws:eks:us-west-2:123456789:cluster/my-cluster
+  
+  # Azure AKS cluster
+  - name: aks-prod
+    kubeconfig_path: ~/.kube/aks-config
+    context: aks-prod-cluster
+
+# Command Aliases
+# Define shortcuts for frequently used commands
+aliases:
+  # Service management
+  restart-app: "systemctl restart myapp"
+  start-app: "systemctl start myapp"
+  stop-app: "systemctl stop myapp"
+  app-status: "systemctl status myapp"
+  
+  # System checks
+  check-disk: "df -h"
+  check-memory: "free -h"
+  check-load: "uptime"
+  check-processes: "ps aux | head -20"
+  
+  # Log operations
+  app-errors: "tail -100 /var/log/app/error.log"
+  nginx-errors: "tail -100 /var/log/nginx/error.log"
+  system-log: "journalctl -n 100"
+  
+  # Docker operations
+  clean-docker: "docker system prune -af"
+  list-images: "docker images"
+  
+  # Network checks
+  check-ports: "netstat -tuln"
+  check-connections: "ss -s"
+  
+  # Deployment operations
+  deploy-frontend: "cd /app/frontend && git pull && docker-compose up -d"
+  deploy-backend: "cd /app/backend && git pull && systemctl restart backend"
+  
+  # Database operations
+  db-backup: "/scripts/backup-db.sh"
+  db-status: "systemctl status postgresql"
+
+# General Settings
+settings:
+  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO
+  
+  # Connection timeout in seconds
+  timeout: 30
+  
+  # Number of retry attempts for failed operations
+  retry_count: 3
+  
+  # Enable colored output
+  colored_output: true
+  
+  # Default namespace for Kubernetes operations
+  default_k8s_namespace: default
+  
+  # Default number of log lines to tail
+  default_log_lines: 100
