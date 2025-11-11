@@ -27,6 +27,12 @@ Orbit-MCP unifies the CLI, an interactive AI agent, and the Model Context Protoc
 
 ---
 
+## Why Python?
+
+Orbit-MCP ships as a Python package because the platform leans heavily on battle-tested Python SDKs for SSH (Paramiko), Docker, Kubernetes, and structured CLI tooling. The reference project you linked (`claude-task-master`) focuses on distributing an npm package for JavaScript runtimes; Orbit-MCP, by contrast, embeds privileged infrastructure integrations and long-running services that are easier to harden, test, and package in Python.
+
+---
+
 ## Documentation
 
 📚 **[Read the full docs](docs/README.md)** for architecture, walkthroughs, and playbooks.
@@ -69,6 +75,54 @@ Add any provider keys you plan to use:
 - At least one LLM provider credential (Anthropic, OpenAI, Google, Mistral, Groq, Perplexity, etc.) **or** a local provider such as Ollama
 
 Orbit can route prompts through different models for planning, research, and fallback. Define credentials in `~/.mcp/config.yaml`, environment variables, or editor-specific MCP config.
+
+---
+
+## Installation
+
+Orbit-MCP is published as the `mcp-server` Python package.
+
+```bash
+# Recommended: isolated install with pipx
+pipx install mcp-server
+
+# or install into an activated virtual environment
+pip install mcp-server
+```
+
+Working from a clone? The editable install keeps source and runtime in sync:
+
+```bash
+git clone https://github.com/<your-org>/orbit-mcp.git
+cd orbit-mcp
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+
+After installing, confirm the entry points:
+
+```bash
+mcp --help
+mcp-server --help
+```
+
+If those commands are not on your `PATH`, make sure `~/.local/bin` (or your pipx bin directory) is exported.
+
+---
+
+## Configuration
+
+Orbit looks for a config file at `~/.mcp/config.yaml` by default. Generate or copy one of the following:
+
+```bash
+# Guided setup
+mcp config init
+
+# Or start from the example bundled with the repo
+cp config.example.yaml ~/.mcp/config.yaml
+```
+
+Populate the file with the SSH servers, Kubernetes clusters, and Docker hosts you want Orbit to manage, then add any LLM credentials (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) as environment variables or directly under the `llm.providers` section. See [docs/configuration.md](docs/configuration.md) for every field.
 
 ---
 
