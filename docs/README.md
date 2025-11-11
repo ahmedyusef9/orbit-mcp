@@ -8,6 +8,7 @@ Orbit-MCP’s docs mirror the playbook used by Task Master: fast onboarding, a d
 
 - [Quick Start](./quick-start.md) — from requirements and installation to your first command in under ten minutes.
 - [Configuration](./configuration.md) — single source of truth for SSH, Docker, Kubernetes, LLM providers, and tool scopes.
+- [Product Requirements & Roadmap](./product-requirements.md) — PRD, six-week delivery plan, post-launch backlog.
 
 > **Ask AI**  
 > “Give me the TL;DR for Orbit-MCP setup and link me to the config schema.”
@@ -32,8 +33,9 @@ Orbit-MCP’s docs mirror the playbook used by Task Master: fast onboarding, a d
 
 1. **Quick Start**: install + run the MCP server once.  
 2. **Configuration**: wire in infrastructure and provider keys, pick a tool scope.  
-3. **MCP Tools / CLI Reference**: explore what the LLM can call versus what humans can script.  
-4. **Autopilot Playbooks + Best Practices**: operationalize Orbit for on-call, SRE, and CI/CD scenarios.
+3. **Product Requirements & Roadmap**: understand the end-to-end build targets and timeline.  
+4. **MCP Tools / CLI Reference**: explore what the LLM can call versus what humans can script.  
+5. **Autopilot Playbooks + Best Practices**: operationalize Orbit for on-call, SRE, and CI/CD scenarios.
 
 ---
 
