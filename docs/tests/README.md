@@ -471,7 +471,7 @@ When adding new features:
 - [pytest documentation](https://docs.pytest.org/)
 - [pytest-asyncio](https://pytest-asyncio.readthedocs.io/)
 - [MCP Protocol Spec](https://modelcontextprotocol.io/)
-- [Orbit-MCP Architecture](../docs/ARCHITECTURE_OVERVIEW.md)
+- [Orbit-MCP Documentation Hub](../doc-hub.md)
 
 ## Support
 
