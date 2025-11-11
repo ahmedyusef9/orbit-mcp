@@ -85,9 +85,9 @@ echo "  3. View help:"
 echo "     mcp --help"
 echo ""
 echo "Documentation:"
-echo "  - Quick Start: docs/QUICKSTART.md"
-echo "  - Full Guide:  README.md"
-echo "  - Examples:    docs/examples.md"
+echo "  - Quick Start: docs/quick-start.md"
+echo "  - Configuration: docs/configuration.md"
+echo "  - CLI Reference: docs/cli-reference.md"
 echo ""
 
 if [[ "$create_venv" =~ ^[Yy]$ ]]; then

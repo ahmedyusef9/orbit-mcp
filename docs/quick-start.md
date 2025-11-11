@@ -1,6 +1,6 @@
 # Orbit-MCP Quick Start
 
-Spin up Orbit-MCP in minutes—the flow mirrors Task Master’s “Requirements → Installation → Configuration → First Command” cadence so you can paste it into Mintlify or share as-is.
+Spin up Orbit-MCP in minutes. This guide sticks to a **single install path** (the bundled script) and then shows how to wire Orbit into Cursor so you can start calling tools immediately.
 
 ---
 
@@ -16,58 +16,24 @@ Spin up Orbit-MCP in minutes—the flow mirrors Task Master’s “Requirements 
 
 ---
 
-## 2. Installation paths
-
-### Option A — One-click Cursor deeplink
-
-Use the same pattern as Task Master: ship a Cursor URL that installs the MCP server with placeholder keys. Adjust the repo URL and environment before sharing.
-
-```
-cursor://mcp/install?name=orbit-mcp&command=mcp-server&transport=stdio&env[ORBIT_TOOLS]=standard
-```
-
-After the deeplink, open `~/.cursor/mcp.json` to replace placeholder API keys.
-
-### Option B — Manual MCP registration
-
-Update `~/.cursor/mcp.json` (Cursor), `~/.claude/mcp.json` (Claude Code), or `~/.windsurf/mcp.json` (Windsurf):
-
-```json
-{
-  "mcpServers": {
-    "orbit-mcp": {
-      "command": "mcp-server",
-      "args": ["--transport", "stdio"],
-      "env": {
-        "ORBIT_TOOLS": "core",
-        "ORBIT_CONFIG": "/Users/<you>/.mcp/config.yaml"
-      }
-    }
-  }
-}
-```
-
-Restart the editor and approve the connection when prompted.
-
-### Option C — CLI install
+## 2. Single-command installation
 
 ```bash
-# clone & enter
 git clone https://github.com/<org>/orbit-mcp.git
 cd orbit-mcp
-
-# create virtualenv (recommended)
-python3 -m venv .venv
-source .venv/bin/activate
-
-# install dependencies + console scripts
-pip install -r requirements.txt
-pip install -e .
-
-# smoke test
-mcp --help
-mcp-server --help
+chmod +x install.sh
+./install.sh
 ```
+
+What the script does:
+
+- Verifies Python 3.10+ and offers to create a virtual environment.
+- Installs all dependencies and Orbit-MCP (`pip install -e .`).
+- Optionally runs `mcp config init` so you start with a config file.
+- Confirms the `mcp` CLI is on your `PATH`.
+
+> **Ask AI**  
+> “Run the Orbit installer and confirm the `mcp` command is available.”
 
 ---
 
@@ -95,7 +61,38 @@ mcp-server --help
 
 ---
 
-## 4. First run checklist
+## 4. Add Orbit-MCP to Cursor
+
+1. Ensure `mcp-server` is available (`which mcp-server`).  
+2. Edit `~/.cursor/mcp.json` (create it if it doesn’t exist) and add:
+
+```json
+{
+  "mcpServers": {
+    "orbit-mcp": {
+      "command": "mcp-server",
+      "args": ["--transport", "stdio"],
+      "env": {
+        "ORBIT_TOOLS": "standard",
+        "ORBIT_CONFIG": "/Users/<you>/.mcp/config.yaml",
+        "OPENAI_API_KEY": "sk-...",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
+3. Restart Cursor (or use the MCP reload command) and approve the Orbit-MCP connection when prompted.
+4. In the editor chat, try:  
+   > “Use Orbit-MCP to tail the last 50 lines of nginx error logs on `prod-web`.”
+
+> **Ask AI**  
+> “Define Orbit-MCP in Cursor using `~/.cursor/mcp.json` and enable the `standard` tool scope.”
+
+---
+
+## 5. First run checklist
 
 ```bash
 # 1. Validate configuration
@@ -110,15 +107,7 @@ mcp docker ps
 mcp k8s pods -n production
 ```
 
-Now open Cursor/Claude Code and try:
-
-> “Use Orbit-MCP to tail the last 50 lines of nginx error logs on `prod-web`.”
-
-Approve the tool call and review the result in the chat.
-
----
-
-## 5. Common next steps
+Whether you’re in the terminal or Cursor, the following commands verify everything end-to-end:
 
 - `mcp ai ask "List pods in production"` — exercise the AI agent loop.
 - `mcp ai chat` — start an interactive REPL with plan/execute/reflect.
