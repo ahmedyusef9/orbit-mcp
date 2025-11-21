@@ -1,0 +1,174 @@
+Perfect, local is definitely the easiest way to start. Let’s wire this end-to-end:
+
+* **Local Python MCP server** using the official `mcp` Python SDK
+* **Cursor config** (`~/.cursor/mcp.json` or `.cursor/mcp.json`) pointing to `python server.py`
+
+I’ll give you copy-pasteable snippets.
+
+---
+
+## 1️⃣ Create a tiny local MCP server (Python)
+
+### Step 1: Make a project
+
+```bash
+mkdir -p ~/orbit_mcp
+cd ~/orbit_mcp
+
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+pip install mcp
+```
+
+The `mcp` package is the official Python SDK and includes FastMCP. ([GitHub][1])
+
+---
+
+### Step 2: Create `server.py`
+
+In `~/orbit_mcp/server.py`:
+
+```python
+from datetime import datetime
+from typing import List
+
+from mcp.server.fastmcp import FastMCP
+
+# 1. Create the MCP server
+mcp = FastMCP("orbit-mcp")
+
+# 2. Simple health check tool
+@mcp.tool()
+def ping() -> str:
+    """Simple health check: returns a pong message with timestamp."""
+    return f"pong from orbit-mcp at {datetime.utcnow().isoformat()}Z"
+
+
+# 3. Example: pretend "list environments" tool (MVP placeholder)
+@mcp.tool()
+def list_environments() -> List[dict]:
+    """
+    List known environments (placeholder).
+    Later you can load this from environments.yaml.
+    """
+    return [
+        {"id": "prod-rke2", "type": "k8s", "description": "RKE2 production cluster"},
+        {"id": "stg-ssh", "type": "ssh", "description": "Staging VMs via SSH"},
+    ]
+
+
+if __name__ == "__main__":
+    # FastMCP will speak MCP over stdin/stdout, which is exactly what Cursor expects
+    mcp.run()
+```
+
+This uses `FastMCP` just like the official quickstart (they also decorate tools and call `mcp.run()` to serve over stdio). ([GitHub][1])
+
+You can quickly sanity-check it in a terminal:
+
+```bash
+python server.py
+# (it will just sit there waiting for an MCP client – no output is OK)
+Ctrl + C to exit
+```
+
+---
+
+## 2️⃣ Tell Cursor how to start this server
+
+Cursor reads MCP config from:
+
+* Global: `~/.cursor/mcp.json`
+* Per project: `<your-project>/.cursor/mcp.json` ([Snyk][2])
+
+For now, let’s do **global**, so orbit-mcp is available everywhere.
+
+### Step 1: Create / edit `~/.cursor/mcp.json`
+
+If the file doesn’t exist, create it with this content (adjust the path!):
+
+```jsonc
+{
+  "mcpServers": {
+    "orbit-mcp": {
+      "command": "python",
+      "args": [
+        "/home/ahmad/orbit_mcp/server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
+```
+
+Key points:
+
+* `"command": "python"` – Cursor will run `python ...`
+* `"args": ["/absolute/path/to/server.py"]` – must be an **absolute** path
+* `env` is optional; you can later add things like `ORBIT_ENV_CONFIG` when you load real K8s/SSH config.
+
+This is exactly the stdio pattern Cursor supports for Python MCP servers: `command` + `args` + optional `env`. ([DEV Community][3])
+
+> If you already have other servers in this file, just **merge** the `"orbit-mcp"` block under the existing `"mcpServers"` object.
+
+---
+
+## 3️⃣ Enable & test inside Cursor
+
+1. **Restart Cursor** (or use Settings → Tools → refresh MCP servers).
+
+2. Go to **Settings → Tools / MCP**:
+
+   * You should see a server named **`orbit-mcp`**.
+   * It should show **Connected** and list tools like `ping`, `list_environments`.
+
+3. In a Cursor chat, try:
+
+   > “Use the **orbit-mcp** tools. Call `ping` and show me the result.”
+
+   Or:
+
+   > “Ask the `orbit-mcp` server to call `list_environments` and summarize what environments are available.”
+
+Cursor will:
+
+* Start `python /home/ahmad/orbit_mcp/server.py`
+* Talk MCP over stdin/stdout
+* Expose your tools to the LLM
+
+---
+
+## 4️⃣ How this maps to your mental model
+
+Now your setup is literally:
+
+```text
+[Cursor + Claude]  <--MCP over stdio-->  [orbit-mcp (python server.py)]  --> (later) k8s / ssh / etc
+```
+
+Today:
+
+* Tools: `ping`, `list_environments` (fake)
+
+Next step (when you’re ready):
+
+* Add real tools:
+
+  * `k8s_list_pods(env, namespace, label_selector)`
+  * `k8s_get_pod_logs(...)`
+  * `ssh_run_command(env, host_id, command)`
+* Keep the same Cursor config – only `server.py` changes.
+
+---
+
+If you want, I can now:
+
+* Extend `server.py` with a **real `k8s_get_pod_logs` tool**, using your kubeconfig, and
+* Show how to pass `KUBECONFIG`/`ORBIT_ENV_CONFIG` via the same `env` block in `mcp.json` so the LLM can actually debug one of your RKE2 clusters.
+
+[1]: https://github.com/AI-App/ModelContextProtocol.Python-SDK "GitHub - AI-App/ModelContextProtocol.Python-SDK: The official Python SDK for Model Context Protocol servers and clients"
+[2]: https://snyk.io/articles/how-to-add-a-new-mcp-server-to-cursor/?utm_source=chatgpt.com "How to Add a New MCP Server to Cursor"
+[3]: https://dev.to/composiodev/how-to-connect-cursor-to-100-mcp-servers-within-minutes-3h74?utm_source=chatgpt.com "How to connect Cursor to 100+ MCP Servers within minutes"
