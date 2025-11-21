@@ -1,0 +1,219 @@
+Nice, this is exactly the point where it starts feeling “real” 😄
+Let’s make **orbit-mcp** behave like a normal CLI tool (`orbit-mcp`) that:
+
+* You can run from **any folder**
+* Cursor can call just with `"command": "orbit-mcp"`
+* Has env vars set automatically
+
+I’ll assume **Linux / macOS** shell. I’ll add a short Windows note at the end.
+
+---
+
+## 1️⃣ Put orbit-mcp in a fixed place
+
+Pick a permanent folder, e.g.:
+
+```bash
+mkdir -p ~/dev/orbit-mcp
+cd ~/dev/orbit-mcp
+```
+
+Move your `server.py` there (or create it there).
+
+---
+
+## 2️⃣ Create venv and install dependencies
+
+Inside `~/dev/orbit-mcp`:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+
+pip install --upgrade pip
+pip install mcp
+```
+
+Now `python server.py` should work (it’ll just wait on stdin).
+
+---
+
+## 3️⃣ Create a global launcher script `orbit-mcp`
+
+We’ll create a tiny shell script that:
+
+1. Activates the venv
+2. Runs `server.py`
+3. Uses env vars if needed
+
+### Step 3.1 – create a `bin` folder in your home
+
+```bash
+mkdir -p ~/bin
+```
+
+### Step 3.2 – create `~/bin/orbit-mcp`
+
+Open it in an editor (e.g. `nano ~/bin/orbit-mcp`) and put:
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+# Path to your orbit-mcp project
+ORBIT_DIR="$HOME/dev/orbit-mcp"
+
+# Optional: global env vars for orbit
+export ORBIT_ENV_CONFIG="$ORBIT_DIR/config/environments.yaml"
+export ORBIT_LOG_LEVEL="INFO"
+
+# Activate venv
+source "$ORBIT_DIR/.venv/bin/activate"
+
+# Run the MCP server
+python "$ORBIT_DIR/server.py"
+```
+
+Then make it executable:
+
+```bash
+chmod +x ~/bin/orbit-mcp
+```
+
+Now from *any* directory you can test:
+
+```bash
+orbit-mcp
+# (it should run and just sit there waiting; Ctrl+C to stop)
+```
+
+If that works, we’re good.
+
+---
+
+## 4️⃣ Add `~/bin` to your PATH (so any path can find it)
+
+Add this line to your shell config (`~/.bashrc` or `~/.zshrc`):
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+Then reload:
+
+```bash
+source ~/.bashrc     # or: source ~/.zshrc
+```
+
+Check:
+
+```bash
+which orbit-mcp
+# should output: /home/ahmad/bin/orbit-mcp
+```
+
+At this point:
+
+* `orbit-mcp` is callable from **any path** in your terminal.
+* Env vars like `ORBIT_ENV_CONFIG` are set automatically by the script whenever it runs.
+
+---
+
+## 5️⃣ Wire this into Cursor MCP config
+
+Now you can simplify your Cursor config to use the **command name**, not a full python path.
+
+Create or edit:
+
+```bash
+nano ~/.cursor/mcp.json
+```
+
+Example content:
+
+```jsonc
+{
+  "mcpServers": {
+    "orbit-mcp": {
+      "command": "orbit-mcp",
+      "args": [],
+      "env": {
+        // You can override or add extra env here if needed:
+        "ORBIT_LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}
+```
+
+Notes:
+
+* Cursor will now just run `orbit-mcp` like any other CLI.
+* The script sets `ORBIT_ENV_CONFIG` and activates the venv, so you don’t have to care from Cursor side.
+* The `env` in this JSON is *extra* or overrides; you can keep it minimal.
+
+Restart Cursor, then in a chat say something like:
+
+> “Ask the `orbit-mcp` server to call `ping` and show me the result.”
+
+If the config + script are correct, you’ll see `orbit-mcp` listed under MCP servers in Cursor and the tools (`ping`, `list_environments`, etc.) will show up.
+
+---
+
+## 6️⃣ Where to put env vars (summary)
+
+You have 3 layers you can use:
+
+1. **Inside the launcher script** (`~/bin/orbit-mcp`)
+
+   * Good for orbit-specific settings:
+
+     ```bash
+     export ORBIT_ENV_CONFIG="$ORBIT_DIR/config/environments.yaml"
+     export ORBIT_LOG_LEVEL="INFO"
+     ```
+
+2. **Shell global env** (in `~/.bashrc` / `~/.zshrc`)
+
+   * For values you might want in other tools too:
+
+     ```bash
+     export ORBIT_ENV_CONFIG="$HOME/dev/orbit-mcp/config/environments.yaml"
+     ```
+
+3. **Cursor MCP config `env` block**
+
+   * For Cursor-only overrides:
+
+     ```jsonc
+     "env": {
+       "ORBIT_LOG_LEVEL": "DEBUG"
+     }
+     ```
+
+In practice I’d do:
+
+* Put `ORBIT_ENV_CONFIG` in the **script**,
+* Use `ORBIT_LOG_LEVEL` override per client (Cursor) if you want more verbose logs.
+
+---
+
+## 7️⃣ Quick Windows note
+
+If you work on Windows without WSL:
+
+* Create a folder like `C:\Users\Ahmad\bin`
+* Add it to PATH via “Environment Variables” GUI.
+* Create `orbit-mcp.bat` or `orbit-mcp.ps1` that:
+
+  * Activates venv (`.\.venv\Scripts\activate`)
+  * Runs `python server.py`
+
+Cursor’s `"command": "orbit-mcp"` works the same way as long as it’s in PATH.
+
+---
+
+If you’d like, next I can:
+
+* Add **real arguments** to `orbit-mcp` (e.g. `orbit-mcp --config /path/...`),
+* Or show you how to refactor `server.py` into a proper Python package with a `console_scripts` entry point so you can `pip install -e .` and get the `orbit-mcp` binary automatically.
