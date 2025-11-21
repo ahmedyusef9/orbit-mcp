@@ -1,0 +1,346 @@
+Exactly 👌 — switching to SSH keys is the right move.
+
+Let’s design it so:
+
+* You **bootstrap once** with password (to install the public key).
+* After that, `orbit-mcp` uses the **private key** silently.
+* The **LLM never sees passwords or private keys**, only `server_id` + stdout/stderr.
+
+I’ll give you:
+
+1. Config file with both password + key metadata
+2. A `ssh_setup_key` tool to generate + install a key on the target
+3. A `ssh_run_command` tool that uses the key afterwards
+
+---
+
+## 1️⃣ servers.yaml – describe servers + auth
+
+`~/dev/orbit-mcp/config/servers.yaml`:
+
+```yaml
+servers:
+  prod-app-01:
+    host: "10.0.0.10"
+    username: "ahmad"
+    auth_method: "password"        # start as password
+    password_env: "ORBIT_SSH_PASS_PROD_APP01"
+    key_path: "/home/ahmad/.ssh/orbit_mcp_prod_app_01"   # where private key will be stored
+
+  stg-app-01:
+    host: "10.0.1.20"
+    username: "ahmad"
+    auth_method: "key"             # example already using key
+    key_path: "/home/ahmad/.ssh/orbit_mcp_stg_app_01"
+    password_env: "ORBIT_SSH_PASS_STG_APP01"             # kept for setup/backup
+```
+
+Flow:
+
+* For **initial setup**:
+
+  * `auth_method: password`
+  * Have `password_env` set.
+  * Call `ssh_setup_key(server_id)`.
+  * Then change `auth_method` to `key` for that server.
+
+---
+
+## 2️⃣ Env vars (password only for setup)
+
+In your shell or in `~/bin/orbit-mcp` launcher:
+
+```bash
+export ORBIT_ENV_CONFIG="$HOME/dev/orbit-mcp/config/servers.yaml"
+
+export ORBIT_SSH_PASS_PROD_APP01='yourProdPasswordHere'
+export ORBIT_SSH_PASS_STG_APP01='yourStagingPasswordHere'
+```
+
+---
+
+## 3️⃣ Updated `server.py` with key setup + key-based SSH
+
+Below is a self-contained version you can drop into `~/dev/orbit-mcp/server.py`.
+
+```python
+from datetime import datetime
+from typing import Dict, Any
+
+import os
+import socket
+import yaml
+import paramiko
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("orbit-mcp")
+
+# ---------- Config loading ----------
+
+def load_servers_config() -> Dict[str, Any]:
+    """
+    Load server definitions from ORBIT_ENV_CONFIG YAML.
+    """
+    config_path = os.getenv("ORBIT_ENV_CONFIG", "config/servers.yaml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"ORBIT_ENV_CONFIG not found: {config_path}")
+
+    with open(config_path, "r") as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("servers", {})
+
+
+SERVERS = load_servers_config()
+
+
+def get_server_config(server_id: str) -> Dict[str, Any]:
+    if server_id not in SERVERS:
+        raise ValueError(f"Unknown server_id: {server_id}")
+    return SERVERS[server_id]
+
+
+# ---------- SSH helpers ----------
+
+def _connect_with_password(cfg: Dict[str, Any], timeout: int = 30) -> paramiko.SSHClient:
+    host = cfg["host"]
+    username = cfg["username"]
+    password_env = cfg.get("password_env")
+
+    if not password_env:
+        raise RuntimeError(f"password_env is not configured for server {host}")
+
+    password = os.getenv(password_env)
+    if not password:
+        raise RuntimeError(f"Password env var {password_env} is not set")
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(hostname=host, username=username, password=password, timeout=timeout)
+    return ssh
+
+
+def _connect_with_key(cfg: Dict[str, Any], timeout: int = 30) -> paramiko.SSHClient:
+    host = cfg["host"]
+    username = cfg["username"]
+    key_path = cfg.get("key_path")
+
+    if not key_path or not os.path.exists(key_path):
+        raise RuntimeError(f"Key path {key_path} does not exist for server {host}")
+
+    pkey = paramiko.RSAKey.from_private_key_file(key_path)
+
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(hostname=host, username=username, pkey=pkey, timeout=timeout)
+    return ssh
+
+
+def get_ssh_client(server_id: str, timeout: int = 30) -> paramiko.SSHClient:
+    """
+    Connect using auth_method: 'key' or 'password'.
+    """
+    cfg = get_server_config(server_id)
+    auth_method = cfg.get("auth_method", "password")
+
+    if auth_method == "key":
+        return _connect_with_key(cfg, timeout=timeout)
+    elif auth_method == "password":
+        return _connect_with_password(cfg, timeout=timeout)
+    else:
+        raise ValueError(f"Unsupported auth_method '{auth_method}' for server {server_id}")
+
+
+def run_ssh_command(server_id: str, command: str, timeout: int = 30) -> Dict[str, Any]:
+    """
+    Run a shell command via SSH using current auth_method.
+    """
+    cfg = get_server_config(server_id)
+    host = cfg["host"]
+
+    ssh = get_ssh_client(server_id, timeout=timeout)
+
+    try:
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+
+        return {
+            "server_id": server_id,
+            "host": host,
+            "command": command,
+            "stdout": out,
+            "stderr": err,
+            "exit_code": exit_code,
+        }
+    finally:
+        ssh.close()
+
+
+def ensure_local_keypair(key_path: str) -> str:
+    """
+    Generate an RSA keypair at key_path if it doesn't exist.
+    Returns the public key string.
+    """
+    key_path = os.path.expanduser(key_path)
+    key_dir = os.path.dirname(key_path)
+    os.makedirs(key_dir, exist_ok=True)
+
+    if not os.path.exists(key_path):
+        # Generate new key
+        key = paramiko.RSAKey.generate(4096)
+        key.write_private_key_file(key_path)
+        os.chmod(key_path, 0o600)
+    else:
+        key = paramiko.RSAKey.from_private_key_file(key_path)
+
+    comment = f"orbit-mcp@{socket.gethostname()}"
+    pub_key = f"{key.get_name()} {key.get_base64()} {comment}"
+    return pub_key
+
+
+def install_public_key_on_server(server_id: str) -> Dict[str, Any]:
+    """
+    Using password auth, generate (if needed) a local keypair and install
+    its public key into ~/.ssh/authorized_keys on the remote server.
+    """
+    cfg = get_server_config(server_id)
+    host = cfg["host"]
+    username = cfg["username"]
+    key_path = cfg.get("key_path")
+
+    if not key_path:
+        raise RuntimeError(f"key_path is not configured for server {server_id}")
+
+    # 1) Generate / read local keypair, get public key
+    pub_key = ensure_local_keypair(key_path)
+
+    # 2) Connect using password auth only for setup
+    ssh = _connect_with_password(cfg)
+
+    try:
+        # Prepare ~/.ssh and append key
+        # NOTE: this uses a shell; avoid double quotes issues.
+        escaped_pub = pub_key.replace('"', '\\"')
+        setup_cmd = (
+            'mkdir -p ~/.ssh && chmod 700 ~/.ssh && '
+            f'echo "{escaped_pub}" >> ~/.ssh/authorized_keys && '
+            'chmod 600 ~/.ssh/authorized_keys'
+        )
+
+        stdin, stdout, stderr = ssh.exec_command(setup_cmd, timeout=30)
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+
+        return {
+            "server_id": server_id,
+            "host": host,
+            "username": username,
+            "key_path": key_path,
+            "public_key_installed": pub_key,
+            "stdout": out,
+            "stderr": err,
+            "exit_code": exit_code,
+            "note": (
+                "Public key installed. "
+                "You can now set auth_method: 'key' for this server in servers.yaml."
+            ),
+        }
+    finally:
+        ssh.close()
+
+
+# ---------- MCP tools ----------
+
+@mcp.tool()
+def ping() -> str:
+    """Simple health check."""
+    return f"pong from orbit-mcp at {datetime.utcnow().isoformat()}Z"
+
+
+@mcp.tool()
+def ssh_run_command(server_id: str, command: str) -> Dict[str, Any]:
+    """
+    Run a CLI command on a configured server and return stdout/stderr/exit_code.
+
+    Uses auth_method from servers.yaml ('password' or 'key').
+    """
+    result = run_ssh_command(server_id, command)
+    max_len = 20_000
+    for key in ("stdout", "stderr"):
+        if len(result[key]) > max_len:
+            result[key] = result[key][:max_len] + "\n[TRUNCATED]\n"
+    return result
+
+
+@mcp.tool()
+def ssh_setup_key(server_id: str) -> Dict[str, Any]:
+    """
+    Generate a local SSH keypair (if missing) and install the public key on the server.
+
+    Uses password auth for the setup phase.
+    After success, edit servers.yaml to set auth_method: 'key' for this server.
+    """
+    return install_public_key_on_server(server_id)
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+Key points:
+
+* **Private key** is stored only on your machine (`key_path`), not returned via tools.
+* Tool `ssh_setup_key` returns:
+
+  * Info about what it did.
+  * The public key (which is safe).
+  * A note telling you to flip `auth_method` to `"key"`.
+
+---
+
+## 4️⃣ How you actually use this flow
+
+From Cursor (LLM controlling orbit-mcp):
+
+1. **Bootstrap once (password-based):**
+
+   > “Use `orbit-mcp` to run `ssh_setup_key` on `prod-app-01` and tell me if the key was installed successfully.”
+
+   Internally, orbit-mcp:
+
+   * Uses password env var.
+   * Generates `~/.ssh/orbit_mcp_prod_app_01`.
+   * Appends public key to `~/.ssh/authorized_keys` on the server.
+
+2. **Then you change config**:
+
+   In `servers.yaml`:
+
+   ```yaml
+   prod-app-01:
+     host: "10.0.0.10"
+     username: "ahmad"
+     auth_method: "key"              # ← switch here
+     key_path: "/home/ahmad/.ssh/orbit_mcp_prod_app_01"
+     password_env: "ORBIT_SSH_PASS_PROD_APP01"   # can keep as backup
+   ```
+
+3. **Now, every command uses key-based auth:**
+
+   In Cursor:
+
+   > “Use orbit-mcp to run `df -h` on `prod-app-01`.”
+
+   → LLM calls `ssh_run_command("prod-app-01", "df -h")`
+   → orbit-mcp uses the key (`auth_method: key`)
+   → stdout/stderr come back, no password prompts, no secrets to model.
+
+---
+
+If you want next, we can:
+
+* Add a **safe allowlist** layer on top of `ssh_run_command` (especially for prod).
+* Or add higher-level tools like `ssh_disk_usage(server_id)`, `ssh_journalctl(service)` so the LLM doesn’t even need to write raw shell commands for common diagnostics.
