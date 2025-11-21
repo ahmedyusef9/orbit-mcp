@@ -1,0 +1,325 @@
+Nice, now we’re getting to the fun (and dangerous 😅) part: **giving the LLM real SSH access**.
+
+I’ll show you:
+
+1. The **security model** (so we don’t accidentally hand root of prod to the model).
+2. How to **store passwords** (env vars) and **map “server ids” → host + password**.
+3. How to implement a **`ssh_run_command` MCP tool** in `orbit-mcp` using Python.
+4. How Cursor’s LLM will use it to **send CLI commands and get stdout**.
+
+---
+
+## 1️⃣ Security model (important before code)
+
+What you want:
+
+> “LLM in Cursor can write CLI command → orbit-mcp connects to server with password → runs command → sends back stdout”
+
+That’s fine, but we should:
+
+* **Never expose the password** to the LLM (only stdout/stderr).
+* **Avoid giving full arbitrary command power on prod** if possible.
+* Keep credentials out of code → use **env vars** + a **config file**.
+
+We’ll design it like this:
+
+* LLM sees only **`server_id`** (e.g. `prod-app-01`), not IP/password.
+
+* `orbit-mcp` has a **config**:
+
+  ```yaml
+  servers:
+    prod-app-01:
+      host: 10.0.0.10
+      username: ahmad
+      password_env: ORBIT_SSH_PASS_PROD_APP01
+  ```
+
+* Real password is in **environment variable**, not in code or YAML.
+
+* Tool: `ssh_run_command(server_id, command)` returns `{stdout, stderr, exit_code}`.
+
+---
+
+## 2️⃣ Config file: `servers.yaml`
+
+In `~/dev/orbit-mcp/config/servers.yaml`:
+
+```yaml
+servers:
+  prod-app-01:
+    host: "10.0.0.10"
+    username: "ahmad"
+    password_env: "ORBIT_SSH_PASS_PROD_APP01"
+
+  stg-app-01:
+    host: "10.0.1.20"
+    username: "ahmad"
+    password_env: "ORBIT_SSH_PASS_STG_APP01"
+```
+
+You can later add labels, roles, etc. but this is enough for v1.
+
+---
+
+## 3️⃣ Set password env variables
+
+In your shell (or better in a private secrets file you source):
+
+```bash
+export ORBIT_SSH_PASS_PROD_APP01='yourProdPasswordHere'
+export ORBIT_SSH_PASS_STG_APP01='yourStagingPasswordHere'
+```
+
+If you’re using the `~/bin/orbit-mcp` launcher script from before, you can also put them *there* (still sensitive, so keep file permissions tight):
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+ORBIT_DIR="$HOME/dev/orbit-mcp"
+
+export ORBIT_ENV_CONFIG="$ORBIT_DIR/config/servers.yaml"
+export ORBIT_LOG_LEVEL="INFO"
+
+export ORBIT_SSH_PASS_PROD_APP01='yourProdPasswordHere'
+export ORBIT_SSH_PASS_STG_APP01='yourStagingPasswordHere'
+
+source "$ORBIT_DIR/.venv/bin/activate"
+python "$ORBIT_DIR/server.py"
+```
+
+Make sure **only your user** can read that script:
+
+```bash
+chmod 700 ~/bin/orbit-mcp
+```
+
+---
+
+## 4️⃣ Install SSH library and load config
+
+From `~/dev/orbit-mcp`:
+
+```bash
+source .venv/bin/activate
+pip install paramiko pyyaml
+```
+
+Now update `server.py` to:
+
+* Load `servers.yaml`
+* Provide a helper `run_ssh_command`
+* Expose MCP tool `ssh_run_command`
+
+### `server.py` (extended)
+
+```python
+from datetime import datetime
+from typing import Dict, Any
+
+import os
+import yaml
+import paramiko
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("orbit-mcp")
+
+# ---------- Config loading ----------
+
+def load_servers_config() -> Dict[str, Any]:
+    """
+    Load server definitions from ORBIT_ENV_CONFIG YAML.
+    """
+    config_path = os.getenv("ORBIT_ENV_CONFIG", "config/servers.yaml")
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"ORBIT_ENV_CONFIG not found: {config_path}")
+
+    with open(config_path, "r") as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("servers", {})
+
+SERVERS = load_servers_config()
+
+
+def get_server_config(server_id: str) -> Dict[str, Any]:
+    if server_id not in SERVERS:
+        raise ValueError(f"Unknown server_id: {server_id}")
+    return SERVERS[server_id]
+
+
+# ---------- SSH helper ----------
+
+def run_ssh_command(server_id: str, command: str, timeout: int = 30) -> Dict[str, Any]:
+    """
+    Run a shell command on a remote server via password auth.
+    Returns stdout, stderr, exit_code.
+    """
+    cfg = get_server_config(server_id)
+    host = cfg["host"]
+    username = cfg["username"]
+    password_env = cfg["password_env"]
+
+    password = os.getenv(password_env)
+    if not password:
+        raise RuntimeError(f"Password env var {password_env} is not set")
+
+    ssh = paramiko.SSHClient()
+    # Auto-add host key (for lab/dev; in prod use known_hosts)
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        ssh.connect(
+            hostname=host,
+            username=username,
+            password=password,
+            timeout=timeout,
+        )
+        stdin, stdout, stderr = ssh.exec_command(command, timeout=timeout)
+
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+
+        # DO NOT log password anywhere; only return safe data
+        return {
+            "server_id": server_id,
+            "host": host,
+            "command": command,
+            "stdout": out,
+            "stderr": err,
+            "exit_code": exit_code,
+        }
+    finally:
+        ssh.close()
+
+
+# ---------- MCP tools ----------
+
+@mcp.tool()
+def ping() -> str:
+    """Simple health check."""
+    return f"pong from orbit-mcp at {datetime.utcnow().isoformat()}Z"
+
+
+@mcp.tool()
+def ssh_run_command(server_id: str, command: str) -> Dict[str, Any]:
+    """
+    Run a CLI command on a configured server and return stdout/stderr/exit_code.
+
+    WARNING: High-impact tool.
+    For now it's fully open; later you should enforce an allowlist.
+    """
+    result = run_ssh_command(server_id, command)
+    # You might also choose to truncate extremely large outputs
+    max_len = 20_000
+    for key in ("stdout", "stderr"):
+        if len(result[key]) > max_len:
+            result[key] = result[key][:max_len] + "\n[TRUNCATED]\n"
+    return result
+
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+Now, from *your* terminal, you can test directly:
+
+```bash
+ORBIT_ENV_CONFIG="$HOME/dev/orbit-mcp/config/servers.yaml" \
+ORBIT_SSH_PASS_PROD_APP01='yourProdPasswordHere' \
+python server.py
+# (will wait for MCP client)
+```
+
+Cursor will use exactly the same thing, but via `orbit-mcp` wrapper.
+
+---
+
+## 5️⃣ How the LLM in Cursor will use this
+
+Once Cursor is configured with:
+
+```jsonc
+{
+  "mcpServers": {
+    "orbit-mcp": {
+      "command": "orbit-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+And `orbit-mcp` is in PATH & working, you can say in Cursor chat:
+
+> “Use orbit-mcp to run `df -h` on `prod-app-01` and show me the free disk space.”
+
+The agent loop will look like:
+
+1. LLM sees tool `ssh_run_command(server_id: str, command: str)`.
+2. LLM decides to call it with:
+
+   ```json
+   { "server_id": "prod-app-01", "command": "df -h" }
+   ```
+3. Cursor sends this MCP request to `orbit-mcp`.
+4. `orbit-mcp`:
+
+   * Looks up `prod-app-01` → host + username + `password_env`.
+   * Reads password from env.
+   * Connects via paramiko.
+   * Runs `df -h`.
+   * Returns `{stdout, stderr, exit_code}`.
+5. Cursor feeds the result back to the LLM as context.
+6. LLM reads stdout and answers you in natural language:
+
+   * “On `prod-app-01`, `/` is 72% used, `/data` is 40% used,” etc.
+
+So yes: **the model is “writing CLI commands” and seeing stdout**, but **only through the tool interface** you defined.
+
+---
+
+## 6️⃣ Big safety warning (but your call)
+
+Right now `ssh_run_command` is **fully arbitrary command**. That means the LLM could (in theory) do:
+
+* `rm -rf /`
+* `systemctl stop ...`
+* `iptables ...`
+* etc.
+
+For real environments, I strongly recommend:
+
+* Add an **allowlist** of allowed commands or patterns.
+* Or at least **separate servers**:
+
+  * `prod-*` → only allow read-only commands (df, du, ps, journalctl, cat, ls…)
+  * `stg-*` → allow more freedom.
+
+You can implement a super simple allowlist:
+
+```python
+ALLOWED_PREFIXES = [
+    "df", "du", "ls", "cat", "grep", "tail", "head",
+    "journalctl", "ps", "top -b -n 1", "free", "uname", "uptime",
+]
+
+def is_command_allowed(cmd: str) -> bool:
+    return any(cmd.strip().startswith(prefix) for prefix in ALLOWED_PREFIXES)
+```
+
+Then in `ssh_run_command`:
+
+```python
+if not is_command_allowed(command):
+    raise ValueError("This command is not allowed by orbit-mcp policy.")
+```
+
+You can relax this later when you trust your setup.
+
+---
+
+If you want, next step we can:
+
+* Add a **second tool** like `ssh_tail_journal(server_id, service_name)` that builds safe `journalctl` commands automatically, so the LLM doesn’t even need to compose full CLI strings for common diagnostics.
